@@ -75,7 +75,7 @@ await test("Each credential has name + service, NO api_key", async () => {
     assert(c.service, "missing service");
     const raw = JSON.stringify(c);
     assertExcludes(raw, "api_key", "api_key should not be in credential metadata");
-    assertExcludes(raw, "SG.", "raw API key should not be in output");
+    assertExcludes(raw, "re_", "raw API key should not be in output");
   }
 });
 
@@ -87,9 +87,9 @@ const testCredName = `test-e2e-${Date.now()}`;
 await test("Stores a new credential successfully", async () => {
   const { status, data } = await api("POST", "/api/credentials", {
     name: testCredName,
-    api_key: "SG.e2e_test_key_not_real_1234567890",
-    service: "sendgrid",
-    host: "api.sendgrid.com",
+    api_key: "re_e2e_test_key_not_real_1234567890",
+    service: "resend",
+    host: "api.resend.com",
   });
   assert(status === 200, `Status ${status}`);
   assert(data.ok === true, "should return ok:true");
@@ -99,7 +99,7 @@ await test("Stored credential appears in list", async () => {
   const { data } = await api("GET", "/api/credentials");
   const found = data.credentials.find((c) => c.name === testCredName);
   assert(found, `Credential "${testCredName}" not found in list`);
-  assert(found.service === "sendgrid", "service should be sendgrid");
+  assert(found.service === "resend", "service should be resend");
 });
 
 await test("Stored credential does NOT expose api_key in list", async () => {
@@ -118,8 +118,8 @@ await test("Rejects empty name", async () => {
   const { status, data } = await api("POST", "/api/credentials", {
     name: "",
     api_key: "key",
-    service: "sendgrid",
-    host: "api.sendgrid.com",
+    service: "resend",
+    host: "api.resend.com",
   });
   assert(data.error, "should return error");
   assertIncludes(data.error, "name is required");
@@ -129,8 +129,8 @@ await test("Rejects empty api_key", async () => {
   const { data } = await api("POST", "/api/credentials", {
     name: "test",
     api_key: "",
-    service: "sendgrid",
-    host: "api.sendgrid.com",
+    service: "resend",
+    host: "api.resend.com",
   });
   assert(data.error, "should return error");
   assertIncludes(data.error, "api_key is required");
@@ -145,7 +145,7 @@ await test("Rejects unsupported service (stripe)", async () => {
   });
   assert(data.error, "should return error");
   assertIncludes(data.error, "unsupported service");
-  assertIncludes(data.error, "sendgrid");
+  assertIncludes(data.error, "resend");
 });
 
 await test("Rejects unsupported service (aws)", async () => {
@@ -232,9 +232,9 @@ await test("No raw API keys in any API response", async () => {
     const { data } = await api("GET", ep);
     const raw = JSON.stringify(data);
     // Check for common key patterns
-    assertExcludes(raw, "SG.e2e_test_key", `Key leaked in ${ep}`);
-    assertExcludes(raw, "SG.final_test_key", `Key leaked in ${ep}`);
-    assertExcludes(raw, "SG.dummy", `Key leaked in ${ep}`);
+    assertExcludes(raw, "re_e2e_test_key", `Key leaked in ${ep}`);
+    assertExcludes(raw, "re_final_test_key", `Key leaked in ${ep}`);
+    assertExcludes(raw, "re_dummy", `Key leaked in ${ep}`);
     assertExcludes(raw, "sk_test_", `Key leaked in ${ep}`);
   }
 });
@@ -242,7 +242,7 @@ await test("No raw API keys in any API response", async () => {
 await test("Frontend HTML has no embedded secrets", async () => {
   const res = await fetch(`${BASE}/`);
   const html = await res.text();
-  assertExcludes(html, "SG.", "API key pattern in HTML");
+  assertExcludes(html, "re_", "API key pattern in HTML");
   assertExcludes(html, "sk_test", "Stripe key pattern in HTML");
   assertExcludes(html, "T3N_API_KEY", "Env variable in HTML");
 });

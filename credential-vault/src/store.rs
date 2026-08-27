@@ -37,9 +37,9 @@ pub fn store_credential(input: &[u8]) -> Result<Vec<u8>, String> {
     }
 
     // Only allow known services for MVP
-    if req.service != "sendgrid" {
+    if req.service != "resend" {
         return Err(alloc::format!(
-            "store-credential: unsupported service '{}' — only 'sendgrid' is supported",
+            "store-credential: unsupported service '{}' — only 'resend' is supported",
             req.service
         ));
     }
@@ -99,8 +99,8 @@ mod tests {
         let input = serde_json::to_vec(&serde_json::json!({
             "name": "test",
             "api_key": "key123",
-            "service": "sendgrid",
-            "host": "api.sendgrid.com",
+            "service": "resend",
+            "host": "api.resend.com",
         }))
         .unwrap();
         let result = store_credential(&input);
@@ -122,8 +122,8 @@ mod tests {
         let input = serde_json::to_vec(&serde_json::json!({
             "name": "",
             "api_key": "key123",
-            "service": "sendgrid",
-            "host": "api.sendgrid.com",
+            "service": "resend",
+            "host": "api.resend.com",
         }))
         .unwrap();
         let result = store_credential(&input);

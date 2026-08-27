@@ -78,7 +78,7 @@
         <form id="add-form" class="bg-gray-900 rounded-xl border border-gray-800 p-6 space-y-5 max-w-lg">
           <div>
             <label class="block text-sm text-gray-400 mb-1.5">Credential Name</label>
-            <input type="text" id="add-name" placeholder="e.g. sendgrid-prod" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-600 transition-colors" required>
+            <input type="text" id="add-name" placeholder="e.g. resend-prod" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-600 transition-colors" required>
           </div>
           <div>
             <label class="block text-sm text-gray-400 mb-1.5">API Key</label>
@@ -86,8 +86,8 @@
             <p class="text-xs text-gray-600 mt-1.5">The key will be encrypted inside TEE hardware. You will never see it again after saving.</p>
           </div>
           <div class="bg-gray-800/50 rounded-lg p-4 text-sm text-gray-400">
-            <p class="font-medium text-gray-300 mb-1">Integration: SendGrid</p>
-            <p>Emails will be sent via api.sendgrid.com. The key stays inside the TEE.</p>
+            <p class="font-medium text-gray-300 mb-1">Integration: Resend</p>
+            <p>Emails will be sent via api.resend.com. The key stays inside the TEE.</p>
           </div>
           <div id="add-error" class="text-red-400 text-sm hidden"></div>
           <button type="submit" id="add-btn" class="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium py-2.5 rounded-lg transition-colors">Save Credential</button>
@@ -123,7 +123,7 @@
           <textarea id="send-body" placeholder="Your message..." rows="4" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-600 transition-colors resize-none" required></textarea>
         </div>
         <div class="bg-gray-800/50 rounded-lg p-4 text-sm text-gray-400">
-          <p>The API key is read from TEE inside the enclave and used to authenticate the SendGrid request. It is never exposed to the browser, server, or agent runtime.</p>
+          <p>The API key is read from TEE inside the enclave and used to authenticate the Resend request. It is never exposed to the browser, server, or agent runtime.</p>
         </div>
         <div id="send-error" class="text-red-400 text-sm hidden"></div>
         <div id="send-success" class="hidden bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4 text-center">
@@ -228,7 +228,7 @@
         const res = await fetch('/api/credentials', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: document.getElementById('add-name').value, api_key: document.getElementById('add-key').value, service: 'sendgrid', host: 'api.sendgrid.com' })
+          body: JSON.stringify({ name: document.getElementById('add-name').value, api_key: document.getElementById('add-key').value, service: 'resend', host: 'api.resend.com' })
         });
         const data = await res.json();
         if (data.error) throw new Error(data.error);

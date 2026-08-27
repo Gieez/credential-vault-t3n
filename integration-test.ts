@@ -69,7 +69,7 @@ console.log("2. TenantClient ready.");
 // --- Step 3: Register credential-vault contract ---
 const WASM_PATH = "./credential-vault/target/wasm32-wasip2/release/z_credential_vault.wasm";
 const CONTRACT_TAIL = "credential-vault";
-const CONTRACT_VERSION = "0.1.0";
+const CONTRACT_VERSION = "0.3.0";
 
 const wasmBytes = await readFile(WASM_PATH);
 
@@ -84,7 +84,7 @@ const tenantId = tenantDid.slice("did:t3n:".length);
 const scriptName = `z:${tenantId}:${CONTRACT_TAIL}`;
 console.log(`3. Registered ${scriptName} as contract id ${contractId}`);
 
-// --- Step 4: Create KV maps with ACLs ---
+// --- Step 4: Create/update KV maps with ACLs ---
 // Map 1: credentials
 try {
   await tenant.maps.create({
@@ -95,7 +95,17 @@ try {
   });
   console.log("4a. KV map 'credentials' created.");
 } catch (e: any) {
-  console.log("4a. KV map 'credentials' already exists:", e.message?.slice(0, 80));
+  // Map exists — update ACL with new contract_id
+  try {
+    await tenant.maps.update({
+      tail: "credentials",
+      writers: { only: [contractId] },
+      readers: { only: [contractId] },
+    });
+    console.log("4a. KV map 'credentials' ACL updated for contract", contractId);
+  } catch (e2: any) {
+    console.log("4a. KV map 'credentials':", e2.message?.slice(0, 80));
+  }
 }
 
 // Map 2: activity-log
@@ -108,7 +118,16 @@ try {
   });
   console.log("4b. KV map 'activity-log' created.");
 } catch (e: any) {
-  console.log("4b. KV map 'activity-log' already exists:", e.message?.slice(0, 80));
+  try {
+    await tenant.maps.update({
+      tail: "activity-log",
+      writers: { only: [contractId] },
+      readers: { only: [contractId] },
+    });
+    console.log("4b. KV map 'activity-log' ACL updated for contract", contractId);
+  } catch (e2: any) {
+    console.log("4b. KV map 'activity-log':", e2.message?.slice(0, 80));
+  }
 }
 
 // --- Step 5: Self-grant (user authorizes themselves) ---
@@ -127,7 +146,7 @@ await t3n.execute({
         scriptName: scriptName,
         versionReq: scriptVersion,
         functions: ["store-credential", "list-credentials", "send-email", "get-activity-log"],
-        allowedHosts: ["api.sendgrid.com"],
+        allowedHosts: ["api.resend.com"],
       }],
     }],
   },
@@ -170,10 +189,10 @@ try {
     contract_version: scriptVersion,
     function_name: "store-credential",
     input: {
-      name: "sendgrid-test",
-      api_key: "SG.dummy_test_key_not_real_1234567890",
-      service: "sendgrid",
-      host: "api.sendgrid.com",
+      name: "resend-test",
+      api_key: "re_dummy_key_1234567890",
+      service: "resend",
+      host: "api.resend.com",
     },
   });
   console.log("Result:", JSON.stringify(storeResult, null, 2));

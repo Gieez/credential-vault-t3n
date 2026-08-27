@@ -1,9 +1,9 @@
-//! send_email: Sends an email via SendGrid using a stored credential.
+//! send_email: Sends an email via Resend using a stored credential.
 //!
 //! The API key is read from the z:<tid>:credentials KV map inside the
-//! TEE enclave. The key is used to authenticate the SendGrid API call
+//! TEE enclave. The key is used to authenticate the Resend API call
 //! but is NEVER returned to the caller. Only success/failure and the
-//! SendGrid message ID are returned.
+//! Resend message ID are returned.
 
 #[derive(serde::Deserialize)]
 pub struct SendEmailReq {
@@ -20,8 +20,7 @@ pub struct SendEmailResp {
     pub timestamp: String,
 }
 
-const SENDGRID_BASE: &str = "https://api.sendgrid.com";
-const SENDGRID_VERSION: &str = "v3";
+const RESEND_BASE: &str = "https://api.resend.com";
 
 /// Entry point called from `lib.rs`.
 pub fn send_email(input: &[u8]) -> Result<Vec<u8>, String> {
@@ -70,60 +69,57 @@ fn send_email_wasm(req: SendEmailReq) -> Result<SendEmailResp, String> {
     // Step 1: Read the API key from the credentials KV map
     let api_key = get_credential_key(&req.credential_name)?;
 
-    // Step 2: Build the SendGrid mail send request body
+    // Step 2: Build the Resend email request body
+    // Resend API: POST /emails
+    // Body: { from, to: [...], subject, text }
     let mail_body = json!({
-        "personalizations": [{
-            "to": [{ "email": req.to }],
-            "subject": req.subject,
-        }],
-        "from": {
-            "email": "noreply@example.com",
-            "name": "T3N Credential Vault"
-        },
-        "content": [{
-            "type": "text/plain",
-            "value": req.body,
-        }],
+        "from": "Credential Vault <onboarding@resend.dev>",
+        "to": [req.to],
+        "subject": req.subject,
+        "text": req.body,
     });
 
     let _ = logging::info(&alloc::format!(
-        "Calling SendGrid POST /{SENDGRID_VERSION}/mail/send via credential '{}'",
+        "Calling Resend POST /emails via credential '{}'",
         req.credential_name
     ));
 
-    // Step 3: Call SendGrid API inside the TEE
+    // Step 3: Call Resend API inside the TEE
     let resp = http_iface::call(&http_iface::Request {
         method: http_iface::Verb::Post,
-        url: alloc::format!("{SENDGRID_BASE}/{SENDGRID_VERSION}/mail/send"),
-        headers: Some(sendgrid_headers(&api_key)),
+        url: alloc::format!("{RESEND_BASE}/emails"),
+        headers: Some(resend_headers(&api_key)),
         payload: Some(serde_json::to_vec(&mail_body).map_err(|e| e.to_string())?),
     })
-    .map_err(|e| alloc::format!("sendgrid mail-send: {e}"))?;
+    .map_err(|e| alloc::format!("resend email: {e}"))?;
 
     // Step 4: Handle response
-    // SendGrid returns 202 Accepted on success
-    if resp.code != 202 {
+    // Resend returns 200 OK with { id, from, to, ... } on success
+    if resp.code != 200 {
         let body = alloc::string::String::from_utf8_lossy(&resp.payload);
         let _ = logging::error(&alloc::format!(
-            "SendGrid API HTTP {}: {}",
+            "Resend API HTTP {}: {}",
             resp.code,
             body
         ));
         return Err(alloc::format!(
-            "SendGrid mail-send failed: HTTP {code}",
-            code = resp.code
+            "Resend email failed: HTTP {code} — {body}",
+            code = resp.code,
+            body = body
         ));
     }
 
-    // Extract message ID from response headers (SendGrid returns it in the body or headers)
-    // For MVP, we use a simple hash of the request as a reference ID
-    let message_id = alloc::format!(
-        "vault-{}",
-        hex::encode(&req.to.as_bytes()[..req.to.len().min(8)])
-    );
+    // Parse response to get the message ID
+    let resp_json: serde_json::Value = serde_json::from_slice(&resp.payload)
+        .map_err(|e| alloc::format!("resend response parse: {e}"))?;
+
+    let message_id = resp_json["id"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
 
     let _ = logging::info(&alloc::format!(
-        "Email sent to {} via credential '{}' (message_id: {})",
+        "Email sent to {} via credential '{}' (id: {})",
         req.to,
         req.credential_name,
         message_id
@@ -162,11 +158,11 @@ fn get_credential_key(credential_name: &str) -> Result<alloc::string::String, St
         .ok_or("credential missing api_key field")?
         .to_string();
 
-    // Validate the service is sendgrid
+    // Validate the service is resend
     let service = credential["service"].as_str().unwrap_or("");
-    if service != "sendgrid" {
+    if service != "resend" {
         return Err(alloc::format!(
-            "credential '{}' is for service '{}' — only 'sendgrid' is supported",
+            "credential '{}' is for service '{}' — only 'resend' is supported",
             credential_name,
             service
         ));
@@ -175,9 +171,9 @@ fn get_credential_key(credential_name: &str) -> Result<alloc::string::String, St
     Ok(api_key)
 }
 
-/// Build SendGrid API headers.
+/// Build Resend API headers.
 #[cfg(target_arch = "wasm32")]
-fn sendgrid_headers(
+fn resend_headers(
     api_key: &str,
 ) -> alloc::vec::Vec<(alloc::string::String, alloc::string::String)> {
     alloc::vec![
@@ -222,12 +218,9 @@ fn log_activity(credential_name: &str, recipient: &str, status: &str) -> Result<
     Ok(())
 }
 
-/// Simple timestamp placeholder for MVP (TEE has no system clock exposed directly).
+/// Simple timestamp placeholder for MVP.
 #[cfg(target_arch = "wasm32")]
 fn chrono_timestamp() -> &'static str {
-    // In a real implementation, use host:interfaces/time or a counter.
-    // For MVP, we use a static string. The TEE contract could use
-    // the time host interface if needed.
     "2026-01-01T00:00:00Z"
 }
 
