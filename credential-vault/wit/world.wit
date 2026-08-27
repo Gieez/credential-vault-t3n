@@ -1,0 +1,53 @@
+/// credential-vault WIT world — Confidential Credential Vault Agent.
+///
+/// Imports required host capabilities:
+///   - tenant-context: tenant DID for building KV map names
+///   - logging:        debug / info / error lines
+///   - kv-store:       credential storage + activity log
+///   - http:           SendGrid API calls (credential usage)
+///
+/// Exported functions:
+///   - store-credential:  Save an API key into TEE-encrypted KV
+///   - list-credentials:  List stored credential names (never keys)
+///   - send-email:        Send email via SendGrid using stored credential
+///   - get-activity-log:  Retrieve hashed audit trail
+package z:credential-vault@0.1.0;
+
+world credential-vault {
+    import host:tenant/tenant-context@1.0.0;
+    import host:interfaces/logging@2.1.0;
+    import host:interfaces/kv-store@2.1.0;
+    import host:interfaces/http@2.1.0;
+
+    export contracts;
+}
+
+interface contracts {
+    /// Standard 3-field envelope used by all contracts callable from the node.
+    record generic-input {
+        input:        option<list<u8>>,
+        user-profile: option<list<u8>>,
+        context:      option<list<u8>>,
+    }
+
+    /// Store a credential (API key) into the TEE-encrypted KV map.
+    /// Input  (JSON): { name, api_key, service, host }
+    /// Output (JSON): { ok: true }
+    store-credential: func(req: generic-input) -> result<list<u8>, string>;
+
+    /// List stored credential names (NEVER returns raw API keys).
+    /// Input  (JSON): (empty or {})
+    /// Output (JSON): { credentials: [{ name, service, created_at }] }
+    list-credentials: func(req: generic-input) -> result<list<u8>, string>;
+
+    /// Send an email via SendGrid using a stored credential.
+    /// The API key is read from KV inside the TEE and never exposed.
+    /// Input  (JSON): { credential_name, to, subject, body }
+    /// Output (JSON): { sent: true, message_id, timestamp }
+    send-email: func(req: generic-input) -> result<list<u8>, string>;
+
+    /// Retrieve recent activity log entries.
+    /// Input  (JSON): { limit: number }
+    /// Output (JSON): { entries: [{ action, credential, recipient_hash, status, timestamp }] }
+    get-activity-log: func(req: generic-input) -> result<list<u8>, string>;
+}

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Credential Vault — T3N Enterprise Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dark: { 900: '#0a0a0f', 800: '#12121a', 700: '#1a1a25', 600: '#252530' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background: #0a0a0f; color: #e5e7eb; font-family: system-ui, -apple-system, sans-serif; }
+    .tab-active { color: #34d399; border-bottom: 2px solid #34d399; }
+    .hidden { display: none; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: #34d399; }
+    .fade-in { animation: fadeIn 0.3s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+  <!-- Nav -->
+  <nav class="border-b border-gray-800 bg-gray-900/80 backdrop-blur-sm sticky top-0 z-50">
+    <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-8 h-8 bg-emerald-500 rounded-lg flex items-center justify-center text-sm font-bold text-white">V</div>
+        <span class="font-semibold text-lg">Credential Vault</span>
+        <span class="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full">T3N TEE</span>
+      </div>
+      <div class="flex gap-1" id="nav-tabs">
+        <button onclick="showTab('dashboard')" class="tab-btn px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors" data-tab="dashboard">Dashboard</button>
+        <button onclick="showTab('add')" class="tab-btn px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors" data-tab="add">Add Key</button>
+        <button onclick="showTab('send')" class="tab-btn px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors" data-tab="send">Send Email</button>
+        <button onclick="showTab('log')" class="tab-btn px-3 py-1.5 text-sm text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors" data-tab="log">Activity</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-5xl mx-auto px-4 py-8">
+    <!-- Dashboard -->
+    <div id="page-dashboard" class="page fade-in">
+      <h1 class="text-2xl font-bold mb-6">Dashboard</h1>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-4">
+          <p class="text-sm text-gray-500 mb-1">Stored Credentials</p>
+          <p id="stat-count" class="text-2xl font-bold text-emerald-400">-</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-4">
+          <p class="text-sm text-gray-500 mb-1">TEE Status</p>
+          <p class="text-2xl font-bold text-blue-400">Active</p>
+        </div>
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-4">
+          <p class="text-sm text-gray-500 mb-1">Security</p>
+          <p class="text-2xl font-bold text-purple-400">Encrypted</p>
+        </div>
+      </div>
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">Stored Credentials</h2>
+          <button onclick="showTab('add')" class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm px-4 py-2 rounded-lg transition-colors">+ Add Credential</button>
+        </div>
+        <div id="cred-list"><p class="text-gray-500">Loading...</p></div>
+        <p class="text-xs text-gray-600 mt-4">API keys are stored inside TEE hardware and never exposed to the browser or server.</p>
+      </div>
+    </div>
+
+    <!-- Add Credential -->
+    <div id="page-add" class="page hidden fade-in">
+      <h1 class="text-2xl font-bold mb-6">Add Credential</h1>
+      <div id="add-form-container">
+        <form id="add-form" class="bg-gray-900 rounded-xl border border-gray-800 p-6 space-y-5 max-w-lg">
+          <div>
+            <label class="block text-sm text-gray-400 mb-1.5">Credential Name</label>
+            <input type="text" id="add-name" placeholder="e.g. sendgrid-prod" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-600 transition-colors" required>
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1.5">API Key</label>
+            <input type="password" id="add-key" placeholder="your-api-key-here" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-600 transition-colors" required>
+            <p class="text-xs text-gray-600 mt-1.5">The key will be encrypted inside TEE hardware. You will never see it again after saving.</p>
+          </div>
+          <div class="bg-gray-800/50 rounded-lg p-4 text-sm text-gray-400">
+            <p class="font-medium text-gray-300 mb-1">Integration: SendGrid</p>
+            <p>Emails will be sent via api.sendgrid.com. The key stays inside the TEE.</p>
+          </div>
+          <div id="add-error" class="text-red-400 text-sm hidden"></div>
+          <button type="submit" id="add-btn" class="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium py-2.5 rounded-lg transition-colors">Save Credential</button>
+        </form>
+      </div>
+      <div id="add-success" class="hidden bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-6 text-center max-w-lg">
+        <p class="text-emerald-400 font-medium text-lg">Credential saved to TEE</p>
+        <p class="text-gray-500 text-sm mt-2">The API key is now encrypted inside the TEE and will never be exposed.</p>
+      </div>
+    </div>
+
+    <!-- Send Email -->
+    <div id="page-send" class="page hidden fade-in">
+      <h1 class="text-2xl font-bold mb-6">Send Email</h1>
+      <form id="send-form" class="bg-gray-900 rounded-xl border border-gray-800 p-6 space-y-5 max-w-lg">
+        <div>
+          <label class="block text-sm text-gray-400 mb-1.5">Credential</label>
+          <select id="send-cred" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white transition-colors" required>
+            <option value="">Select a credential...</option>
+          </select>
+          <p id="send-no-creds" class="text-xs text-yellow-500 mt-1 hidden">No credentials found. <a href="#" onclick="showTab('add')" class="underline">Add one first</a>.</p>
+        </div>
+        <div>
+          <label class="block text-sm text-gray-400 mb-1.5">To</label>
+          <input type="email" id="send-to" placeholder="recipient@example.com" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-600 transition-colors" required>
+        </div>
+        <div>
+          <label class="block text-sm text-gray-400 mb-1.5">Subject</label>
+          <input type="text" id="send-subject" placeholder="Hello from T3N" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-600 transition-colors" required>
+        </div>
+        <div>
+          <label class="block text-sm text-gray-400 mb-1.5">Body</label>
+          <textarea id="send-body" placeholder="Your message..." rows="4" class="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-600 transition-colors resize-none" required></textarea>
+        </div>
+        <div class="bg-gray-800/50 rounded-lg p-4 text-sm text-gray-400">
+          <p>The API key is read from TEE inside the enclave and used to authenticate the SendGrid request. It is never exposed to the browser, server, or agent runtime.</p>
+        </div>
+        <div id="send-error" class="text-red-400 text-sm hidden"></div>
+        <div id="send-success" class="hidden bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4 text-center">
+          <p class="text-emerald-400 font-medium">Email Sent</p>
+          <p id="send-msg-id" class="text-gray-500 text-sm mt-1"></p>
+        </div>
+        <button type="submit" id="send-btn" class="w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-medium py-2.5 rounded-lg transition-colors">Send Email</button>
+      </form>
+    </div>
+
+    <!-- Activity Log -->
+    <div id="page-log" class="page hidden fade-in">
+      <h1 class="text-2xl font-bold mb-6">Activity Log</h1>
+      <div class="bg-gray-900 rounded-xl border border-gray-800 p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold">Recent Activity</h2>
+          <span class="text-xs text-gray-500">Last 20 entries</span>
+        </div>
+        <div id="log-list"><p class="text-gray-500">Loading...</p></div>
+        <p class="text-xs text-gray-600 mt-4">Recipient emails are stored as SHA-256 hashes — never in plaintext. The activity log is inside the TEE and cannot be tampered with.</p>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let currentTab = 'dashboard';
+    let credentials = [];
+
+    function showTab(tab) {
+      document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+      document.getElementById('page-' + tab).classList.remove('hidden');
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('tab-active'));
+      document.querySelector(`[data-tab="${tab}"]`).classList.add('tab-active');
+      currentTab = tab;
+      if (tab === 'dashboard') loadDashboard();
+      if (tab === 'send') loadCredentialsForSend();
+      if (tab === 'log') loadLog();
+      if (tab === 'add') resetAddForm();
+    }
+
+    async function loadDashboard() {
+      try {
+        const res = await fetch('/api/credentials');
+        const data = await res.json();
+        credentials = data.credentials || [];
+        document.getElementById('stat-count').textContent = credentials.length;
+        const list = document.getElementById('cred-list');
+        if (credentials.length === 0) {
+          list.innerHTML = '<p class="text-gray-500">No credentials stored yet.</p>';
+        } else {
+          list.innerHTML = `<table class="w-full"><thead><tr class="text-left text-sm text-gray-500 border-b border-gray-800"><th class="pb-3">Name</th><th class="pb-3">Service</th><th class="pb-3">Status</th></tr></thead><tbody>${credentials.map(c => `<tr class="border-b border-gray-800/50"><td class="py-3 font-medium">${esc(c.name)}</td><td class="py-3 text-gray-400 capitalize">${esc(c.service)}</td><td class="py-3"><span class="bg-emerald-500/20 text-emerald-400 text-xs px-2 py-1 rounded-full">Active</span></td></tr>`).join('')}</tbody></table>`;
+        }
+      } catch (e) {
+        document.getElementById('cred-list').innerHTML = `<p class="text-red-400 text-sm">${esc(e.message)}</p>`;
+      }
+    }
+
+    async function loadCredentialsForSend() {
+      try {
+        const res = await fetch('/api/credentials');
+        const data = await res.json();
+        credentials = data.credentials || [];
+        const sel = document.getElementById('send-cred');
+        sel.innerHTML = '<option value="">Select a credential...</option>' + credentials.map(c => `<option value="${esc(c.name)}">${esc(c.name)} (${esc(c.service)})</option>`).join('');
+        document.getElementById('send-no-creds').classList.toggle('hidden', credentials.length > 0);
+      } catch {}
+    }
+
+    async function loadLog() {
+      try {
+        const res = await fetch('/api/log?limit=20');
+        const data = await res.json();
+        const entries = data.entries || [];
+        const list = document.getElementById('log-list');
+        if (entries.length === 0) {
+          list.innerHTML = '<p class="text-gray-500">No activity yet.</p>';
+        } else {
+          list.innerHTML = `<div class="space-y-3">${entries.map(e => `<div class="flex items-center gap-4 p-3 bg-gray-800/50 rounded-lg"><div class="w-2 h-2 rounded-full bg-emerald-400"></div><div class="flex-1 min-w-0"><p class="text-sm"><span class="text-gray-400">${esc(e.action)}</span> via <span class="font-medium">${esc(e.credential)}</span></p><p class="text-xs text-gray-600 font-mono truncate">to: ${esc(e.recipient_hash?.slice(0, 16) || '')}...</p></div><div class="text-right"><span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">${esc(e.status)}</span><p class="text-xs text-gray-600 mt-1">${esc(e.timestamp)}</p></div></div>`).join('')}</div>`;
+        }
+      } catch (e) {
+        document.getElementById('log-list').innerHTML = `<p class="text-red-400 text-sm">${esc(e.message)}</p>`;
+      }
+    }
+
+    function resetAddForm() {
+      document.getElementById('add-form').classList.remove('hidden');
+      document.getElementById('add-success').classList.add('hidden');
+      document.getElementById('add-error').classList.add('hidden');
+      document.getElementById('add-name').value = '';
+      document.getElementById('add-key').value = '';
+    }
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+    // Add Credential form
+    document.getElementById('add-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('add-btn');
+      const err = document.getElementById('add-error');
+      btn.disabled = true; btn.textContent = 'Saving to TEE...'; err.classList.add('hidden');
+      try {
+        const res = await fetch('/api/credentials', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: document.getElementById('add-name').value, api_key: document.getElementById('add-key').value, service: 'sendgrid', host: 'api.sendgrid.com' })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        document.getElementById('add-form').classList.add('hidden');
+        document.getElementById('add-success').classList.remove('hidden');
+      } catch (e) {
+        err.textContent = e.message; err.classList.remove('hidden');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Save Credential';
+      }
+    });
+
+    // Send Email form
+    document.getElementById('send-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('send-btn');
+      const err = document.getElementById('send-error');
+      const succ = document.getElementById('send-success');
+      btn.disabled = true; btn.textContent = 'Sending via TEE...'; err.classList.add('hidden'); succ.classList.add('hidden');
+      try {
+        const res = await fetch('/api/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            credential_name: document.getElementById('send-cred').value,
+            to: document.getElementById('send-to').value,
+            subject: document.getElementById('send-subject').value,
+            body: document.getElementById('send-body').value
+          })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        document.getElementById('send-msg-id').textContent = 'Message ID: ' + data.message_id;
+        succ.classList.remove('hidden');
+        document.getElementById('send-to').value = '';
+        document.getElementById('send-subject').value = '';
+        document.getElementById('send-body').value = '';
+      } catch (e) {
+        err.textContent = e.message; err.classList.remove('hidden');
+      } finally {
+        btn.disabled = false; btn.textContent = 'Send Email';
+      }
+    });
+
+    // Init
+    showTab('dashboard');
+  </script>
+</body>
+</html>

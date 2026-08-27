@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Environment / secrets
+.env
+.env.*
+
+# Rust build artifacts
+credential-vault/target/
+
+# WASM binaries (built from source)
+*.wasm
+
+# Next.js (unused, kept for reference)
+frontend/
+.next/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Installer binaries
+rustup-init.exe
+
+# Internal task file
+task.txt
+
+# IDE
+.vscode/
+.idea/
+
+# Debug logs
+*.log
