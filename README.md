@@ -51,7 +51,7 @@ Enterprise teams store API keys in `.env` files, password managers, or shared do
 │  │  credential-vault WASM contract (Rust)        │      │
 │  │  • store-credential  → write key to KV        │      │
 │  │  • list-credentials  → names only, never keys │      │
-│  │  • send-email        → read key, call SendGrid│      │
+│  │  • send-email        → read key, call Resend│      │
 │  │  • get-activity-log  → hashed audit trail     │      │
 │  └───────────────────────────────────────────────┘      │
 │  KV Maps (encrypted at rest):                           │
@@ -65,7 +65,7 @@ Enterprise teams store API keys in `.env` files, password managers, or shared do
 | Outside TEE (TypeScript/HTML) | Inside TEE (Rust WASM) |
 |------------------------------|----------------------|
 | Dashboard UI | Credential storage (KV) |
-| User authentication | Email sending (HTTP to SendGrid) |
+| User authentication | Email sending (HTTP to Resend) |
 | Activity log display | Access control enforcement |
 | Session management | Activity logging (hashed) |
 
@@ -160,7 +160,7 @@ terminal3-bounty/
 │       ├── lib.rs                # Dispatch
 │       ├── store.rs              # store-credential
 │       ├── list.rs               # list-credentials
-│       ├── send.rs               # send-email (SendGrid)
+│       ├── send.rs               # send-email (Resend)
 │       └── log.rs                # get-activity-log
 │
 ├── architecture.md               # Technical architecture
@@ -174,7 +174,7 @@ terminal3-bounty/
 ### store-credential
 Save an API key into TEE-encrypted KV map.
 ```json
-Input:  { "name": "sendgrid-prod", "api_key": "SG.xxx", "service": "sendgrid", "host": "api.sendgrid.com" }
+Input:  { "name": "resend-prod", "api_key": "your-api-key", "service": "resend", "host": "api.resend.com" }
 Output: { "ok": true }
 ```
 
@@ -182,13 +182,13 @@ Output: { "ok": true }
 List stored credential names. **NEVER returns raw API keys.**
 ```json
 Input:  {}
-Output: { "credentials": [{ "name": "sendgrid-prod", "service": "sendgrid" }] }
+Output: { "credentials": [{ "name": "resend-prod", "service": "resend" }] }
 ```
 
 ### send-email
-Send email via SendGrid using a stored credential. Key stays inside TEE.
+Send email via Resend using a stored credential. Key stays inside TEE.
 ```json
-Input:  { "credential_name": "sendgrid-prod", "to": "user@example.com", "subject": "Hello", "body": "World" }
+Input:  { "credential_name": "resend-prod", "to": "user@example.com", "subject": "Hello", "body": "World" }
 Output: { "sent": true, "message_id": "vault-...", "timestamp": "..." }
 ```
 
@@ -196,7 +196,7 @@ Output: { "sent": true, "message_id": "vault-...", "timestamp": "..." }
 Retrieve hashed audit trail.
 ```json
 Input:  { "limit": 10 }
-Output: { "entries": [{ "action": "send-email", "credential": "sendgrid-prod", "recipient_hash": "a1b2c3...", "status": "sent" }] }
+Output: { "entries": [{ "action": "send-email", "credential": "resend-prod", "recipient_hash": "a1b2c3...", "status": "sent" }] }
 ```
 
 ---
@@ -207,7 +207,7 @@ Output: { "entries": [{ "action": "send-email", "credential": "sendgrid-prod", "
 |--------|------|-------------|
 | GET | `/api/credentials` | List stored credentials (names only) |
 | POST | `/api/credentials` | Store a new credential |
-| POST | `/api/send` | Send email via SendGrid |
+| POST | `/api/send` | Send email via Resend |
 | GET | `/api/log?limit=N` | Get activity log entries |
 
 ---
@@ -244,7 +244,7 @@ Errors:    rejects empty fields, invalid email, unsupported services
 
 1. **T3N testnet quota** — Testnet has per-minute fuel limits. Rapid testing may hit `quota exceeded`. Production will have higher limits.
 
-2. **SendGrid-only MVP** — Architecture supports adding more services. To add Stripe/AWS: edit `store.rs` (validation) + `send.rs` (HTTP call), rebuild, re-register.
+2. **Resend-only MVP** — Architecture supports adding more services. To add Stripe/AWS: edit `store.rs` (validation) + `send.rs` (HTTP call), rebuild, re-register.
 
 3. **Static timestamps** — Activity log uses placeholder timestamps. Production would use `host:interfaces/clock`.
 

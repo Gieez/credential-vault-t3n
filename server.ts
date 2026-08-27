@@ -103,7 +103,7 @@ app.post("/api/credentials", async (req, res) => {
     const result = await t3n.executeAndDecode({
       contract_id: scriptName, contract_version: scriptVersion,
       function_name: "store-credential",
-      input: { name: req.body.name, api_key: req.body.api_key, service: req.body.service || "sendgrid", host: req.body.host || "api.sendgrid.com" },
+      input: { name: req.body.name, api_key: req.body.api_key, service: req.body.service || "resend", host: req.body.host || "api.resend.com" },
     });
     res.json(result);
   } catch (e: any) {

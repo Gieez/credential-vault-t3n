@@ -4,12 +4,12 @@
 ///   - tenant-context: tenant DID for building KV map names
 ///   - logging:        debug / info / error lines
 ///   - kv-store:       credential storage + activity log
-///   - http:           SendGrid API calls (credential usage)
+///   - http:           Resend API calls (credential usage)
 ///
 /// Exported functions:
 ///   - store-credential:  Save an API key into TEE-encrypted KV
 ///   - list-credentials:  List stored credential names (never keys)
-///   - send-email:        Send email via SendGrid using stored credential
+///   - send-email:        Send email via Resend using stored credential
 ///   - get-activity-log:  Retrieve hashed audit trail
 package z:credential-vault@0.1.0;
 
@@ -40,7 +40,7 @@ interface contracts {
     /// Output (JSON): { credentials: [{ name, service, created_at }] }
     list-credentials: func(req: generic-input) -> result<list<u8>, string>;
 
-    /// Send an email via SendGrid using a stored credential.
+    /// Send an email via Resend using a stored credential.
     /// The API key is read from KV inside the TEE and never exposed.
     /// Input  (JSON): { credential_name, to, subject, body }
     /// Output (JSON): { sent: true, message_id, timestamp }

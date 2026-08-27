@@ -29,7 +29,7 @@ WHAT:
   runtime or application server.
 
 WHY ENTERPRISE USEFUL:
-  - Every enterprise has scattered API keys (Stripe, SendGrid, AWS, etc.)
+  - Every enterprise has scattered API keys (Stripe, Resend, AWS, etc.)
   - Current solutions (Vault, .env files) either need ops expertise or
     are insecure
   - T3N makes it zero-infrastructure: keys live in TEE, agent uses them
@@ -55,7 +55,7 @@ MVP SCOPE:
      - use-credential(name, request) → makes API call inside TEE
   2. Next.js dashboard to manage credentials
   3. Agent registration + user delegation flow
-  4. Demo: store a SendGrid key, agent sends email via TEE
+  4. Demo: store a Resend key, agent sends email via TEE
 
 SKILLS MATCH: ★★★★★
   - Frontend: React/Next.js dashboard (your strength)
@@ -208,7 +208,7 @@ IMPLEMENTATION PLAN:
   └─> Activity log: show what agent did (without exposing secrets)
 
   Day 5: Demo + Polish
-  └─> End-to-end demo: store SendGrid key → agent sends email
+  └─> End-to-end demo: store Resend key → agent sends email
   └─> Record demo video
   └─> Write bounty submission
 

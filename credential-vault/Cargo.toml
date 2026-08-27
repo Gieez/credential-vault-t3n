@@ -2,7 +2,7 @@
 name = "z-credential-vault"
 version = "0.1.0"
 edition = "2021"
-description = "Confidential Credential Vault Agent — stores API keys in TEE, uses them for SendGrid email sending without exposing secrets."
+description = "Confidential Credential Vault Agent — stores API keys in TEE, uses them for Resend email sending without exposing secrets."
 license = "MIT"
 publish = false
 

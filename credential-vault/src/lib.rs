@@ -1,14 +1,14 @@
 //! z-credential-vault v0.1.0 — Confidential Credential Vault Agent.
 //!
 //! Stores API keys inside TEE-encrypted KV maps and uses them to call
-//! external services (SendGrid) without ever exposing the raw keys to
+//! external services (Resend) without ever exposing the raw keys to
 //! the agent runtime, frontend, or application server.
 //!
 //! # Exported functions
 //!
 //!   - `store-credential`:  Save an API key into z:<tid>:credentials KV map
 //!   - `list-credentials`:  List credential names (never the keys themselves)
-//!   - `send-email`:        Send email via SendGrid using a stored credential
+//!   - `send-email`:        Send email via Resend using a stored credential
 //!   - `get-activity-log`:  Retrieve hashed audit trail
 //!
 //! # Security model
