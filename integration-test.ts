@@ -72,66 +72,78 @@ const CONTRACT_TAIL = "credential-vault";
 const CONTRACT_VERSION = "0.3.0";
 
 const wasmBytes = await readFile(WASM_PATH);
-
-const regResult = await tenant.contracts.register({
-  tail: CONTRACT_TAIL,
-  version: CONTRACT_VERSION,
-  wasm: wasmBytes,
-});
-
-const contractId = regResult.contract_id;
 const tenantId = tenantDid.slice("did:t3n:".length);
 const scriptName = `z:${tenantId}:${CONTRACT_TAIL}`;
-console.log(`3. Registered ${scriptName} as contract id ${contractId}`);
+const scriptVersion = await getContractVersion(getNodeUrl(), scriptName);
 
-// --- Step 4: Create/update KV maps with ACLs ---
-// Map 1: credentials
+let contractId: number | null = null;
+let aclNeedsUpdate = false;
+
 try {
-  await tenant.maps.create({
-    tail: "credentials",
-    visibility: "private",
-    writers: { only: [contractId] },
-    readers: { only: [contractId] },
+  const regResult = await tenant.contracts.register({
+    tail: CONTRACT_TAIL,
+    version: CONTRACT_VERSION,
+    wasm: wasmBytes,
   });
-  console.log("4a. KV map 'credentials' created.");
+  contractId = regResult.contract_id;
+  aclNeedsUpdate = true; // fresh registration needs ACL setup
+  console.log(`3. Registered ${scriptName} v${CONTRACT_VERSION} as contract id ${contractId}`);
 } catch (e: any) {
-  // Map exists — update ACL with new contract_id
+  // Contract already exists at this version
+  console.log(`3. Contract ${scriptName} already registered at v${scriptVersion}`);
+  
+  // Probe: can the contract read its own map?
   try {
-    await tenant.maps.update({
-      tail: "credentials",
-      writers: { only: [contractId] },
-      readers: { only: [contractId] },
+    await t3n.executeAndDecode({
+      contract_id: scriptName,
+      contract_version: scriptVersion,
+      function_name: "list-credentials",
+      input: {},
     });
-    console.log("4a. KV map 'credentials' ACL updated for contract", contractId);
-  } catch (e2: any) {
-    console.log("4a. KV map 'credentials':", e2.message?.slice(0, 80));
+    console.log("   ACL is working — no update needed.");
+  } catch (probeErr: any) {
+    // ACL broken — extract contract_id from error and update
+    const match = (probeErr.message || "").match(/\/(\d+)\)/);
+    if (match) {
+      contractId = parseInt(match[1]);
+      aclNeedsUpdate = true;
+      console.log(`   ACL broken. Contract id: ${contractId}. Will fix.`);
+    } else {
+      console.error("   Cannot determine contract_id:", probeErr.message?.slice(0, 200));
+      process.exit(1);
+    }
   }
 }
 
-// Map 2: activity-log
-try {
-  await tenant.maps.create({
-    tail: "activity-log",
-    visibility: "private",
-    writers: { only: [contractId] },
-    readers: { only: [contractId] },
-  });
-  console.log("4b. KV map 'activity-log' created.");
-} catch (e: any) {
-  try {
-    await tenant.maps.update({
-      tail: "activity-log",
-      writers: { only: [contractId] },
-      readers: { only: [contractId] },
-    });
-    console.log("4b. KV map 'activity-log' ACL updated for contract", contractId);
-  } catch (e2: any) {
-    console.log("4b. KV map 'activity-log':", e2.message?.slice(0, 80));
+// --- Step 4: Create/update KV maps with ACLs (only if needed) ---
+if (aclNeedsUpdate && contractId) {
+  console.log(`4. Updating map ACLs for contract ${contractId}...`);
+  for (const tail of ["credentials", "activity-log"]) {
+    try {
+      await tenant.maps.create({
+        tail,
+        visibility: "private",
+        writers: { only: [contractId] },
+        readers: { only: [contractId] },
+      });
+      console.log(`   Map '${tail}' created.`);
+    } catch (e: any) {
+      try {
+        await tenant.maps.update(tail, {
+          writers: { only: [contractId] },
+          readers: { only: [contractId] },
+        });
+        console.log(`   Map '${tail}' ACL updated.`);
+      } catch (e2: any) {
+        console.log(`   Map '${tail}' update failed:`, e2.message?.slice(0, 100));
+      }
+    }
   }
+} else if (!aclNeedsUpdate) {
+  console.log("4. Skipping map ACL update (already correct).");
 }
 
 // --- Step 5: Self-grant (user authorizes themselves) ---
-const scriptVersion = await getContractVersion(getNodeUrl(), scriptName);
 console.log(`5. Contract version: ${scriptVersion}`);
 
 const userContractVersion = await getContractVersion(getNodeUrl(), "tee:user/contracts");

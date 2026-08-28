@@ -31,3 +31,6 @@ task.txt
 
 # Debug logs
 *.log
+
+# Archives
+*.zip
