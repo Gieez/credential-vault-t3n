@@ -11,9 +11,9 @@ credential-vault/target/
 # WASM binaries (built from source)
 *.wasm
 
-# Next.js (unused, kept for reference)
-frontend/
+# Next.js build output
 .next/
+frontend/.next/
 
 # OS files
 .DS_Store

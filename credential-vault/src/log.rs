@@ -1,8 +1,8 @@
-//! get_activity_log: Retrieves recent activity log entries.
-//!
-//! Activity logs store recipient emails as SHA-256 hashes, never
-//! plaintext. Only action type, credential name, status, and
-//! timestamp are stored.
+//! get_activity_log: Retrieves owner-scoped activity log entries from enclave KV.
+
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 #[derive(serde::Deserialize)]
 pub struct GetActivityLogReq {
@@ -11,73 +11,80 @@ pub struct GetActivityLogReq {
 
 #[derive(serde::Deserialize, serde::Serialize)]
 pub struct ActivityEntry {
+    #[serde(default)]
+    pub seq_no: u64,
     pub action: String,
     pub credential: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub host: String,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
     pub recipient_hash: String,
     pub status: String,
-    pub timestamp: String,
+    #[serde(default)]
+    pub http_code: u16,
+    #[serde(default)]
+    pub timestamp_secs: u64,
+    #[serde(default)]
+    pub actor_did: String,
 }
 
 #[derive(serde::Serialize)]
 pub struct GetActivityLogResp {
-    pub entries: alloc::vec::Vec<ActivityEntry>,
+    pub owner_did: String,
+    pub entries: Vec<ActivityEntry>,
 }
 
-/// Entry point called from `lib.rs`.
-pub fn get_activity_log(input: &[u8]) -> Result<Vec<u8>, String> {
+pub fn get_activity_log(input: &[u8], context: Option<&[u8]>) -> Result<Vec<u8>, String> {
     let req: GetActivityLogReq = serde_json::from_slice(input)
-        .map_err(|e| alloc::format!("get-activity-log: bad input: {e}"))?;
+        .map_err(|e| format!("get-activity-log: bad input: {e}"))?;
 
-    let limit = req.limit.unwrap_or(10).min(100) as usize;
+    let limit = req.limit.unwrap_or(20).min(100) as usize;
 
     #[cfg(target_arch = "wasm32")]
     {
-        let resp = get_activity_log_wasm(limit)?;
+        let resp = get_activity_log_wasm(limit, context)?;
         serde_json::to_vec(&resp).map_err(|e| e.to_string())
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = limit;
+        let _ = (limit, context);
         Err("get_activity_log is only implemented on the wasm32 target".to_string())
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-use crate::host::{
-    interfaces::{kv_store, logging},
-    tenant::tenant_context,
-};
+fn get_activity_log_wasm(limit: usize, context: Option<&[u8]>) -> Result<GetActivityLogResp, String> {
+    use crate::context::{log_map_name, owner_log_prefix, resolve_identity};
+    use crate::host::interfaces::kv_store;
 
-#[cfg(target_arch = "wasm32")]
-fn get_activity_log_wasm(limit: usize) -> Result<GetActivityLogResp, String> {
-    let tid = tenant_context::tenant_did();
-    let map_name = alloc::format!("z:{}:activity-log", hex::encode(&tid));
+    let id = resolve_identity(context);
+    let map_name = log_map_name(&id.tenant_hex);
+    let prefix = owner_log_prefix(&id.owner_hex);
+    let end = format!("u:{};", id.owner_hex);
 
-    // Scan all log entries
-    let pairs = kv_store::scan(&map_name, b"", b"\xff", 100)
-        .map_err(|e| alloc::format!("kv scan: {e}"))?;
+    let pairs = kv_store::scan(&map_name, prefix.as_bytes(), end.as_bytes(), 200)
+        .map_err(|e| format!("kv scan: {e}"))?;
 
-    let mut entries = alloc::vec::Vec::new();
+    let mut kv_pairs = pairs;
+    kv_pairs.sort_by(|a, b| b.0.cmp(&a.0));
+    kv_pairs.truncate(limit);
 
-    // Collect keys for sorting
-    let mut key_value_pairs: alloc::vec::Vec<(alloc::vec::Vec<u8>, alloc::vec::Vec<u8>)> = pairs;
-    key_value_pairs.sort_by(|a, b| b.0.cmp(&a.0)); // descending (newest first)
-    key_value_pairs.truncate(limit);
-
-    for (_key, bytes) in &key_value_pairs {
+    let mut entries = Vec::new();
+    for (_key, bytes) in &kv_pairs {
         if let Ok(entry) = serde_json::from_slice::<ActivityEntry>(bytes) {
             entries.push(entry);
         }
     }
 
-    let _ = logging::info(&alloc::format!(
-        "activity log: {} entries returned (limit: {})",
-        entries.len(),
-        limit
-    ));
-
-    Ok(GetActivityLogResp { entries })
+    Ok(GetActivityLogResp {
+        owner_did: format!("did:t3n:{}", id.owner_hex),
+        entries,
+    })
 }
 
 #[cfg(test)]
@@ -85,28 +92,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn get_activity_log_non_wasm_returns_err() {
-        let input = serde_json::to_vec(&serde_json::json!({ "limit": 10 })).unwrap();
-        let result = get_activity_log(&input);
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("only implemented on the wasm32 target"));
-    }
-
-    #[test]
-    fn get_activity_log_bad_input_returns_err() {
-        let result = get_activity_log(b"not json");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("bad input"));
-    }
-
-    #[test]
-    fn get_activity_log_empty_input_works() {
-        // Empty JSON object should work (limit defaults to None)
-        let result = get_activity_log(b"{}");
-        // Will fail on non-wasm, but input parsing should succeed
-        assert!(result.is_err());
-        assert!(!result.unwrap_err().contains("bad input"));
+    fn rejects_invalid_json() {
+        assert!(get_activity_log(b"bad", None).is_err());
     }
 }

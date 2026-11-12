@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+:root,
+html[data-theme="dark"] {
+  --bg-paper: #0b0d10;
+  --bg-panel: #13171d;
+  --bg-elevated: #1a2029;
+  --text-ink: #ecebe6;
+  --text-muted: #8e95a2;
+  --border-rule: #252c36;
+  --border-strong: #3a4454;
+  --accent-seal: #e04f26;
+  --status-led: #22c55e;
+  --grid-dot: #202731;
+}
+
+html[data-theme="light"] {
+  --bg-paper: #f4f3ee;
+  --bg-panel: #faf9f5;
+  --bg-elevated: #eae8e0;
+  --text-ink: #121417;
+  --text-muted: #5e5c56;
+  --border-rule: #d4d1c7;
+  --border-strong: #121417;
+  --accent-seal: #e04f26;
+  --status-led: #15803d;
+  --grid-dot: #c8c4b8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg-paper);
+  color: var(--text-ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-display {
+  font-family: var(--font-display), system-ui, sans-serif;
+}
+
+.font-mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+}
+
+.bg-paper {
+  background-color: var(--bg-paper);
+}
+
+.bg-panel {
+  background-color: var(--bg-panel);
+}
+
+.bg-elevated {
+  background-color: var(--bg-elevated);
+}
+
+.text-ink {
+  color: var(--text-ink);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+.text-seal {
+  color: var(--accent-seal);
+}
+
+.bg-seal {
+  background-color: var(--accent-seal);
+}
+
+.border-seal {
+  border-color: var(--accent-seal);
+}
+
+.text-led {
+  color: var(--status-led);
+}
+
+.bg-led {
+  background-color: var(--status-led);
+}
+
+.border-led {
+  border-color: var(--status-led);
+}
+
+.hairline {
+  border-color: var(--border-rule);
+}
+
+.hairline-strong {
+  border-color: var(--border-strong);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.wire-grid {
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+@keyframes pulseLed {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.led-pulse {
+  animation: pulseLed 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .led-pulse {
+    animation: none;
+  }
+}

@@ -1,8 +1,8 @@
 [package]
 name = "z-credential-vault"
-version = "0.1.0"
+version = "0.4.2"
 edition = "2021"
-description = "Confidential Credential Vault Agent — stores API keys in TEE, uses them for Resend email sending without exposing secrets."
+description = "VaultGate T3N TEE Contract - multi-provider API proxy and per-DID credential vault."
 license = "MIT"
 publish = false
 

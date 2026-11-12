@@ -413,7 +413,7 @@ dependencies = [
 
 [[package]]
 name = "z-credential-vault"
-version = "0.1.0"
+version = "0.4.2"
 dependencies = [
  "hex",
  "serde",

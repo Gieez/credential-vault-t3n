@@ -1,17 +1,30 @@
 {
-  "name": "terminal3-bounty",
-  "version": "1.0.0",
-  "description": "",
+  "name": "vaultgate-t3n",
+  "version": "0.4.2",
+  "description": "VaultGate: Hardware-sealed AI Agent API Proxy & Remote MCP Server on Terminal 3 TEE",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "start": "npm --prefix frontend run start",
+    "test:contract": "cargo test --manifest-path credential-vault/Cargo.toml",
+    "build:contract": "cargo build --manifest-path credential-vault/Cargo.toml --target wasm32-wasip2 --release",
+    "deploy:contract": "tsx integration-test.ts",
+    "test:e2e": "tsx e2e-test.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "terminal3",
+    "tee",
+    "mcp",
+    "ai-agents",
+    "wasm"
+  ],
+  "author": "Gieez",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
-    "@terminal3/t3n-sdk": "^5.2.0",
+    "@terminal3/t3n-client": "^5.39.1",
+    "@terminal3/t3n-sdk": "^5.39.1",
     "express": "^5.2.1",
     "tsx": "^4.23.12"
   },

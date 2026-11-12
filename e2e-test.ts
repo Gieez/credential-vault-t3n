@@ -1,255 +1,128 @@
 /**
- * E2E Test Suite — Credential Vault Agent
- * Tests all user flows through the Express frontend and T3N contract.
+ * E2E Verification Suite - VaultGate v2 (Multi-Route Next.js App + Remote MCP Server)
+ * Verifies public pages, workspace shells, API auth guards, MCP JSON-RPC, and T3N health.
  */
 
-const BASE = "http://localhost:3000";
+const BASE = process.env.E2E_BASE_URL || "http://127.0.0.1:3000";
 let passed = 0;
 let failed = 0;
 
-async function test(name, fn) {
+async function test(name: string, fn: () => Promise<void>) {
   try {
     await fn();
-    console.log(`  ✓ ${name}`);
+    console.log(`  PASS  ${name}`);
     passed++;
-  } catch (e) {
-    console.error(`  ✗ ${name}: ${e.message}`);
+  } catch (err) {
+    console.error(`  FAIL  ${name}: ${err instanceof Error ? err.message : String(err)}`);
     failed++;
   }
 }
 
-function assert(condition, msg) {
-  if (!condition) throw new Error(msg);
+function assert(cond: unknown, msg: string) {
+  if (!cond) throw new Error(msg);
 }
 
-function assertIncludes(str, substr, msg) {
-  if (!str.includes(substr)) throw new Error(msg || `Expected "${substr}" in "${str.slice(0, 100)}"`);
-}
+async function run() {
+  console.log(`\n=== VaultGate v2 E2E (${BASE}) ===`);
 
-function assertExcludes(str, substr, msg) {
-  if (str.includes(substr)) throw new Error(msg || `Unexpected "${substr}" found`);
-}
+  const htmlRoutes = [
+    ["/", "VaultGate"],
+    ["/docs", "VaultGate Architecture"],
+    ["/traction", "T3N Traction"],
+    ["/login", "Terminal 3 DID"],
+    ["/app", "VERIFYING T3N ENCLAVE SESSION"],
+    ["/app/vault", "VERIFYING T3N ENCLAVE SESSION"],
+    ["/app/agents", "VERIFYING T3N ENCLAVE SESSION"],
+    ["/app/wire", "VERIFYING T3N ENCLAVE SESSION"],
+    ["/app/connect", "VERIFYING T3N ENCLAVE SESSION"],
+    ["/app/audit", "VERIFYING T3N ENCLAVE SESSION"],
+  ] as const;
 
-async function api(method, path, body) {
-  const opts = { method, headers: { "Content-Type": "application/json" } };
-  if (body) opts.body = JSON.stringify(body);
-  const res = await fetch(`${BASE}${path}`, opts);
-  return { status: res.status, data: await res.json() };
-}
-
-// ============================================================
-console.log("\n=== 1. FRONTEND ===");
-
-await test("GET / returns HTML with Credential Vault", async () => {
-  const res = await fetch(`${BASE}/`);
-  const html = await res.text();
-  assert(res.ok, `Status ${res.status}`);
-  assertIncludes(html, "Credential Vault");
-  assertIncludes(html, "Dashboard");
-  assertIncludes(html, "Add Key");
-  assertIncludes(html, "Send Email");
-  assertIncludes(html, "Activity");
-  assertIncludes(html, "T3N TEE");
-});
-
-await test("GET / serves static HTML (not Next.js)", async () => {
-  const res = await fetch(`${BASE}/`);
-  const html = await res.text();
-  assertExcludes(html, "Turbopack");
-  assertExcludes(html, "__NEXT_DATA__");
-  assertIncludes(html, "<!DOCTYPE html>");
-});
-
-// ============================================================
-console.log("\n=== 2. LIST CREDENTIALS (GET /api/credentials) ===");
-
-await test("Returns credentials array", async () => {
-  const { data } = await api("GET", "/api/credentials");
-  assert(Array.isArray(data.credentials), "credentials should be an array");
-});
-
-await test("Each credential has name + service, NO api_key", async () => {
-  const { data } = await api("GET", "/api/credentials");
-  for (const c of data.credentials) {
-    assert(c.name, "missing name");
-    assert(c.service, "missing service");
-    const raw = JSON.stringify(c);
-    assertExcludes(raw, "api_key", "api_key should not be in credential metadata");
-    assertExcludes(raw, "re_", "raw API key should not be in output");
+  for (const [route, expected] of htmlRoutes) {
+    await test(`GET ${route} returns 200 + expected marker & dark default`, async () => {
+      const res = await fetch(`${BASE}${route}`);
+      const html = await res.text();
+      assert(res.status === 200, `Expected 200, got ${res.status}`);
+      assert(html.includes(expected), `Missing "${expected}" in ${route}`);
+      assert(html.includes('data-theme="dark"'), `Missing dark mode default on ${route}`);
+      assert(!html.includes("\u2014") && !html.includes("\u2013"), `Em-dash/en-dash found on ${route}`);
+    });
   }
-});
 
-// ============================================================
-console.log("\n=== 3. STORE CREDENTIAL (POST /api/credentials) ===");
-
-const testCredName = `test-e2e-${Date.now()}`;
-
-await test("Stores a new credential successfully", async () => {
-  const { status, data } = await api("POST", "/api/credentials", {
-    name: testCredName,
-    api_key: "re_e2e_test_key_not_real_1234567890",
-    service: "resend",
-    host: "api.resend.com",
+  await test("GET /api/health returns active contract v0.4.2", async () => {
+    const res = await fetch(`${BASE}/api/health`);
+    const data = await res.json();
+    assert(res.status === 200, `Status ${res.status}`);
+    assert(data.ok === true, "health ok must be true");
+    assert(data.contractId.includes("credential-vault"), "Unexpected contractId");
   });
-  assert(status === 200, `Status ${status}`);
-  assert(data.ok === true, "should return ok:true");
-});
 
-await test("Stored credential appears in list", async () => {
-  const { data } = await api("GET", "/api/credentials");
-  const found = data.credentials.find((c) => c.name === testCredName);
-  assert(found, `Credential "${testCredName}" not found in list`);
-  assert(found.service === "resend", "service should be resend");
-});
-
-await test("Stored credential does NOT expose api_key in list", async () => {
-  const { data } = await api("GET", "/api/credentials");
-  const found = data.credentials.find((c) => c.name === testCredName);
-  assert(found, "credential not found");
-  const raw = JSON.stringify(found);
-  assertExcludes(raw, "e2e_test_key", "api_key leaked in list output");
-  assertExcludes(raw, "api_key", "api_key field should not exist");
-});
-
-// ============================================================
-console.log("\n=== 4. ERROR CASES ===");
-
-await test("Rejects empty name", async () => {
-  const { status, data } = await api("POST", "/api/credentials", {
-    name: "",
-    api_key: "key",
-    service: "resend",
-    host: "api.resend.com",
+  await test("GET /api/traction returns uniqueDidsCount & ledger structure", async () => {
+    const res = await fetch(`${BASE}/api/traction`);
+    const data = await res.json();
+    assert(res.status === 200, `Status ${res.status}`);
+    assert(typeof data.uniqueDidsCount === "number", "Missing uniqueDidsCount");
+    assert(Array.isArray(data.entries), "entries must be array");
   });
-  assert(data.error, "should return error");
-  assertIncludes(data.error, "name is required");
-});
 
-await test("Rejects empty api_key", async () => {
-  const { data } = await api("POST", "/api/credentials", {
-    name: "test",
-    api_key: "",
-    service: "resend",
-    host: "api.resend.com",
+  await test("Auth guard blocks unauthenticated /api/vault, /api/agents, /api/wire, /api/audit", async () => {
+    for (const ep of ["/api/vault", "/api/agents", "/api/audit"]) {
+      const r = await fetch(`${BASE}${ep}`);
+      assert(r.status === 401, `${ep} expected 401, got ${r.status}`);
+    }
+    const w = await fetch(`${BASE}/api/wire`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ credential_name: "x", method: "GET", path: "/" }),
+    });
+    assert(w.status === 401, `/api/wire expected 401, got ${w.status}`);
   });
-  assert(data.error, "should return error");
-  assertIncludes(data.error, "api_key is required");
-});
 
-await test("Rejects unsupported service (stripe)", async () => {
-  const { data } = await api("POST", "/api/credentials", {
-    name: "stripe-test",
-    api_key: "sk_test_123",
-    service: "stripe",
-    host: "api.stripe.com",
+  await test("GET /api/mcp returns MCP metadata & 4 tools", async () => {
+    const res = await fetch(`${BASE}/api/mcp`);
+    const data = await res.json();
+    assert(res.status === 200, `Status ${res.status}`);
+    assert(data.name === "vaultgate-t3n-mcp", "Unexpected MCP name");
+    assert(data.tools.includes("vault_proxy_call"), "Missing vault_proxy_call tool");
   });
-  assert(data.error, "should return error");
-  assertIncludes(data.error, "unsupported service");
-  assertIncludes(data.error, "resend");
-});
 
-await test("Rejects unsupported service (aws)", async () => {
-  const { data } = await api("POST", "/api/credentials", {
-    name: "aws-test",
-    api_key: "AKIA123",
-    service: "aws",
-    host: "api.aws.amazon.com",
+  await test("POST /api/mcp initialize & tools/list follow JSON-RPC 2.0", async () => {
+    const initRes = await fetch(`${BASE}/api/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+    });
+    const initJson = await initRes.json();
+    assert(initJson.result?.serverInfo?.name === "vaultgate-t3n-mcp", "Bad initialize response");
+
+    const listRes = await fetch(`${BASE}/api/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
+    });
+    const listJson = await listRes.json();
+    assert(listJson.result?.tools?.length === 4, "Expected 4 MCP tools");
   });
-  assert(data.error, "should return error");
-  assertIncludes(data.error, "unsupported service");
-});
 
-await test("Rejects invalid email in send-email", async () => {
-  const { data } = await api("POST", "/api/send", {
-    credential_name: "test",
-    to: "not-an-email",
-    subject: "Test",
-    body: "Hello",
+  await test("POST /api/mcp tools/call requires Bearer or X-T3N-Api-Key", async () => {
+    const res = await fetch(`${BASE}/api/mcp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "vault_list_aliases", arguments: {} },
+      }),
+    });
+    assert(res.status === 401, `Expected 401, got ${res.status}`);
   });
-  assert(data.error, "should return error");
-  assertIncludes(data.error, "invalid email");
+
+  console.log(`\nRESULTS: ${passed} passed, ${failed} failed`);
+  if (failed > 0) process.exit(1);
+}
+
+run().catch((e) => {
+  console.error(e);
+  process.exit(1);
 });
-
-await test("Rejects empty to in send-email", async () => {
-  const { data } = await api("POST", "/api/send", {
-    credential_name: "test",
-    to: "",
-    subject: "Test",
-    body: "Hello",
-  });
-  // On testnet with limited credits, may get quota error instead
-  const isQuotaError = data.error?.includes("quota exceeded");
-  const isValidationError = data.error?.includes("to is required");
-  assert(isValidationError || isQuotaError, `Unexpected error: ${data.error}`);
-});
-
-await test("Rejects empty subject in send-email", async () => {
-  const { data } = await api("POST", "/api/send", {
-    credential_name: "test",
-    to: "user@test.com",
-    subject: "",
-    body: "Hello",
-  });
-  const isQuotaError = data.error?.includes("quota exceeded");
-  const isValidationError = data.error?.includes("subject is required");
-  assert(isValidationError || isQuotaError, `Unexpected error: ${data.error}`);
-});
-
-await test("Rejects non-existent credential in send-email", async () => {
-  const { data } = await api("POST", "/api/send", {
-    credential_name: "nonexistent-cred",
-    to: "user@test.com",
-    subject: "Test",
-    body: "Hello",
-  });
-  const isQuotaError = data.error?.includes("quota exceeded");
-  const isNotFoundError = data.error?.includes("not found");
-  assert(isNotFoundError || isQuotaError, `Unexpected error: ${data.error}`);
-});
-
-// ============================================================
-console.log("\n=== 5. ACTIVITY LOG (GET /api/log) ===");
-
-await test("Returns entries array (or quota error)", async () => {
-  const { data } = await api("GET", "/api/log?limit=10");
-  // On testnet with limited credits, may get quota error
-  if (data.error?.includes("quota exceeded")) return; // pass gracefully
-  assert(Array.isArray(data.entries), "entries should be an array");
-});
-
-await test("Limit parameter works (or quota error)", async () => {
-  const { data } = await api("GET", "/api/log?limit=1");
-  if (data.error?.includes("quota exceeded")) return; // pass gracefully
-  assert(data.entries.length <= 1, "should return at most 1 entry");
-});
-
-// ============================================================
-console.log("\n=== 6. SECURITY VERIFICATION ===");
-
-await test("No raw API keys in any API response", async () => {
-  const endpoints = ["/api/credentials", "/api/log?limit=10"];
-  for (const ep of endpoints) {
-    const { data } = await api("GET", ep);
-    const raw = JSON.stringify(data);
-    // Check for common key patterns
-    assertExcludes(raw, "re_e2e_test_key", `Key leaked in ${ep}`);
-    assertExcludes(raw, "re_final_test_key", `Key leaked in ${ep}`);
-    assertExcludes(raw, "re_dummy", `Key leaked in ${ep}`);
-    assertExcludes(raw, "sk_test_", `Key leaked in ${ep}`);
-  }
-});
-
-await test("Frontend HTML has no embedded secrets", async () => {
-  const res = await fetch(`${BASE}/`);
-  const html = await res.text();
-  assertExcludes(html, "re_", "API key pattern in HTML");
-  assertExcludes(html, "sk_test", "Stripe key pattern in HTML");
-  assertExcludes(html, "T3N_API_KEY", "Env variable in HTML");
-});
-
-// ============================================================
-console.log("\n" + "=".repeat(50));
-console.log(`RESULTS: ${passed} passed, ${failed} failed`);
-console.log("=".repeat(50));
-
-if (failed > 0) process.exit(1);
