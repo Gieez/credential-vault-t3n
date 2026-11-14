@@ -7,7 +7,7 @@ import { PublicFooter } from "@/components/PublicFooter";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"otp" | "key">("otp");
+  const [mode, setMode] = useState<"otp" | "key">("key");
   const [email, setEmail] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [otpCode, setOtpCode] = useState("");
@@ -48,7 +48,7 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "OTP verification failed");
-      router.push("/app");
+      window.location.href = "/app";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed");
     } finally {
@@ -68,7 +68,7 @@ export default function LoginPage() {
       });
       const data = await res.json();
       if (!res.ok || data.error) throw new Error(data.error || "Authentication failed");
-      router.push("/app");
+      window.location.href = "/app";
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {
@@ -103,6 +103,20 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => {
+                setMode("key");
+                setError("");
+              }}
+              className={`pb-3 px-3 font-mono text-xs uppercase border-b-2 cursor-pointer ${
+                mode === "key"
+                  ? "border-seal text-ink font-semibold"
+                  : "border-transparent text-muted"
+              }`}
+            >
+              T3N Developer Key (Instant)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 setMode("otp");
                 setError("");
               }}
@@ -113,20 +127,6 @@ export default function LoginPage() {
               }`}
             >
               Email OTP
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode("key");
-                setError("");
-              }}
-              className={`pb-3 px-3 font-mono text-xs uppercase border-b-2 cursor-pointer ${
-                mode === "key"
-                  ? "border-seal text-ink font-semibold"
-                  : "border-transparent text-muted"
-              }`}
-            >
-              T3N Private Key
             </button>
           </div>
 
@@ -218,9 +218,17 @@ export default function LoginPage() {
                   className="w-full bg-paper border hairline px-3.5 py-2.5 font-mono text-xs text-ink"
                 />
               </div>
-              <p className="text-xs text-muted">
-                Used in memory only to sign the SIWE authentication challenge for your session. Never written to disk.
-              </p>
+              <div className="flex items-center justify-between text-xs text-muted">
+                <span>Used locally to authenticate your session via SIWE. Never exposed to third parties.</span>
+                <a
+                  href="https://www.terminal3.io/claim-page"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-seal hover:underline whitespace-nowrap ml-2 font-mono text-[11px]"
+                >
+                  Claim free key &rarr;
+                </a>
+              </div>
               {error && (
                 <div className="p-2.5 border border-seal bg-elevated font-mono text-xs text-seal">
                   {error}

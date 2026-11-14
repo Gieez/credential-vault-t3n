@@ -23,7 +23,7 @@
   "license": "MIT",
   "type": "module",
   "dependencies": {
-    "@terminal3/t3n-client": "^5.39.1",
+    "@terminal3/t3n-client": "^0.4.0",
     "@terminal3/t3n-sdk": "^5.39.1",
     "express": "^5.2.1",
     "tsx": "^4.23.12"

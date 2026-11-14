@@ -223,6 +223,59 @@ export async function verifyEmailOtpLogin(
   }
 }
 
+function getSessionEncryptionKey(): Buffer {
+  const secret = process.env.T3N_API_KEY || "vaultgate-stateless-session-key-salt-2026";
+  return crypto.createHash("sha256").update(secret).digest();
+}
+
+export function encodeSessionToken(payload: {
+  did: string;
+  privateKey?: string;
+  email?: string;
+  authMethod: "otp" | "key";
+  createdAt: number;
+}): string {
+  const iv = crypto.randomBytes(12);
+  const key = getSessionEncryptionKey();
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const json = JSON.stringify(payload);
+  const enc = Buffer.concat([cipher.update(json, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return [
+    iv.toString("base64url"),
+    tag.toString("base64url"),
+    enc.toString("base64url"),
+  ].join(".");
+}
+
+export function decodeSessionToken(token: string): {
+  did: string;
+  privateKey?: string;
+  email?: string;
+  authMethod: "otp" | "key";
+  createdAt: number;
+} | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const [ivB, tagB, encB] = parts;
+    const key = getSessionEncryptionKey();
+    const decipher = crypto.createDecipheriv(
+      "aes-256-gcm",
+      key,
+      Buffer.from(ivB, "base64url")
+    );
+    decipher.setAuthTag(Buffer.from(tagB, "base64url"));
+    const dec = Buffer.concat([
+      decipher.update(Buffer.from(encB, "base64url")),
+      decipher.final(),
+    ]);
+    return JSON.parse(dec.toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
 export async function signInWithPrivateKey(privateKey: string): Promise<UserSession> {
   initT3nEnv();
   const cleanKey = privateKey.trim();
@@ -245,29 +298,78 @@ export async function signInWithPrivateKey(privateKey: string): Promise<UserSess
   await client.handshake();
   const did = await client.authenticate(createEthAuthInput(address));
 
+  const token = encodeSessionToken({
+    did: did.value,
+    privateKey: cleanKey,
+    authMethod: "key",
+    createdAt: Date.now(),
+  });
+
   const session: UserSession = {
-    id: crypto.randomBytes(24).toString("hex"),
+    id: token,
     did: did.value,
     authMethod: "key",
     client,
     createdAt: Date.now(),
     lastActiveAt: Date.now(),
   };
-  sessionsMap().set(session.id, session);
+
+  sessionsMap().set(token, session);
   recordDidActivity(session.did);
   await ensureSelfDelegation(client, session.did);
   return session;
 }
 
 export async function getSessionFromCookies(): Promise<UserSession | null> {
+  initT3nEnv();
   const cookieStore = await cookies();
-  const sid = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  if (!sid) return null;
-  const session = sessionsMap().get(sid) || null;
-  if (session) {
-    session.lastActiveAt = Date.now();
+  const raw = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  if (!raw) return null;
+
+  const inMemory = sessionsMap().get(raw);
+  if (inMemory) {
+    inMemory.lastActiveAt = Date.now();
+    return inMemory;
   }
-  return session;
+
+  const payload = decodeSessionToken(raw);
+  if (!payload || !payload.privateKey) return null;
+
+  try {
+    const cleanKey = payload.privateKey;
+    const address = eth_get_address(cleanKey);
+    const [trustAnchor, wasmComponent] = await Promise.all([
+      getSharedTrustAnchor(),
+      getSharedWasm(),
+    ]);
+
+    const client = new T3nClient({
+      trustAnchor,
+      wasmComponent,
+      handlers: {
+        EthSign: metamask_sign(address, undefined, cleanKey),
+      },
+    });
+
+    await client.handshake();
+    await client.authenticate(createEthAuthInput(address));
+
+    const session: UserSession = {
+      id: raw,
+      did: payload.did,
+      email: payload.email,
+      authMethod: payload.authMethod,
+      client,
+      createdAt: payload.createdAt,
+      lastActiveAt: Date.now(),
+    };
+
+    sessionsMap().set(raw, session);
+    return session;
+  } catch (err) {
+    console.error("Failed to restore session from cookie:", err);
+    return null;
+  }
 }
 
 export async function destroySessionFromCookies(): Promise<void> {
