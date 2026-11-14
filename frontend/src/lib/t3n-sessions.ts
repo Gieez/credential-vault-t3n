@@ -96,12 +96,26 @@ export function recordDidActivity(did: string, entry?: LocalTractionRecord["rece
   }
 }
 
+const userDelegatedHosts = new Set<string>();
+
 export async function ensureSelfDelegation(
   client: T3nClient,
   userDid: string,
   extraHosts: string[] = []
 ): Promise<{ ok: boolean; warning?: string }> {
   try {
+    const key = `${userDid}:${extraHosts.sort().join(",")}`;
+    if (userDelegatedHosts.has(key)) {
+      return { ok: true };
+    }
+
+    if (
+      extraHosts.every((h) => DEFAULT_ALLOWED_HOSTS.includes(h)) &&
+      userDelegatedHosts.has(`${userDid}:base`)
+    ) {
+      return { ok: true };
+    }
+
     const contractId = getContractId();
     const version = await getActiveContractVersion();
     const hosts = Array.from(new Set([...DEFAULT_ALLOWED_HOSTS, ...extraHosts.filter(Boolean)]));
@@ -116,6 +130,8 @@ export async function ensureSelfDelegation(
       ALL_CONTRACT_FUNCTIONS
     );
     await client.updateMemberDelegation(grants, { discoverDids: [userDid] });
+    userDelegatedHosts.add(key);
+    userDelegatedHosts.add(`${userDid}:base`);
     return { ok: true };
   } catch (err) {
     return {
@@ -276,10 +292,13 @@ export function decodeSessionToken(token: string): {
   }
 }
 
-export async function signInWithPrivateKey(privateKey: string): Promise<UserSession> {
-  initT3nEnv();
-  const cleanKey = privateKey.trim();
-  if (!cleanKey) throw new Error("Private key is required");
+const clientPool = new Map<string, { client: T3nClient; did: string; expiresAt: number }>();
+
+async function getOrCreateClient(cleanKey: string): Promise<{ client: T3nClient; did: string }> {
+  const cached = clientPool.get(cleanKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { client: cached.client, did: cached.did };
+  }
 
   const [trustAnchor, wasmComponent] = await Promise.all([
     getSharedTrustAnchor(),
@@ -298,8 +317,24 @@ export async function signInWithPrivateKey(privateKey: string): Promise<UserSess
   await client.handshake();
   const did = await client.authenticate(createEthAuthInput(address));
 
-  const token = encodeSessionToken({
+  clientPool.set(cleanKey, {
+    client,
     did: did.value,
+    expiresAt: Date.now() + 20 * 60 * 1000,
+  });
+
+  return { client, did: did.value };
+}
+
+export async function signInWithPrivateKey(privateKey: string): Promise<UserSession> {
+  initT3nEnv();
+  const cleanKey = privateKey.trim();
+  if (!cleanKey) throw new Error("Private key is required");
+
+  const { client, did } = await getOrCreateClient(cleanKey);
+
+  const token = encodeSessionToken({
+    did,
     privateKey: cleanKey,
     authMethod: "key",
     createdAt: Date.now(),
@@ -307,7 +342,7 @@ export async function signInWithPrivateKey(privateKey: string): Promise<UserSess
 
   const session: UserSession = {
     id: token,
-    did: did.value,
+    did,
     authMethod: "key",
     client,
     createdAt: Date.now(),
@@ -336,27 +371,11 @@ export async function getSessionFromCookies(): Promise<UserSession | null> {
   if (!payload || !payload.privateKey) return null;
 
   try {
-    const cleanKey = payload.privateKey;
-    const address = eth_get_address(cleanKey);
-    const [trustAnchor, wasmComponent] = await Promise.all([
-      getSharedTrustAnchor(),
-      getSharedWasm(),
-    ]);
-
-    const client = new T3nClient({
-      trustAnchor,
-      wasmComponent,
-      handlers: {
-        EthSign: metamask_sign(address, undefined, cleanKey),
-      },
-    });
-
-    await client.handshake();
-    await client.authenticate(createEthAuthInput(address));
+    const { client, did } = await getOrCreateClient(payload.privateKey);
 
     const session: UserSession = {
       id: raw,
-      did: payload.did,
+      did: payload.did || did,
       email: payload.email,
       authMethod: payload.authMethod,
       client,
