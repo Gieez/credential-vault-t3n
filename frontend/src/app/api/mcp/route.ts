@@ -1,7 +1,19 @@
 import { NextResponse } from "next/server";
-import { getNodeUrl } from "@terminal3/t3n-sdk";
+import {
+  getNodeUrl,
+  T3nClient,
+  eth_get_address,
+  metamask_sign,
+  createEthAuthInput,
+} from "@terminal3/t3n-sdk";
 import { discoverWhoami, invoke, type StatelessCredential } from "@terminal3/t3n-client";
-import { getActiveContractVersion, getContractId, initT3nEnv } from "@/lib/t3n-config";
+import {
+  getActiveContractVersion,
+  getContractId,
+  getSharedTrustAnchor,
+  getSharedWasm,
+  initT3nEnv,
+} from "@/lib/t3n-config";
 import { recordDidActivity } from "@/lib/t3n-sessions";
 
 interface JsonRpcReq {
@@ -13,6 +25,7 @@ interface JsonRpcReq {
 
 function extractCredential(req: Request): {
   cred: StatelessCredential | null;
+  rawKey?: string;
   piiDid?: string;
   subjectToken?: string;
 } {
@@ -21,14 +34,50 @@ function extractCredential(req: Request): {
   const piiDid = req.headers.get("x-t3n-owner-did") || undefined;
   const subjectToken = req.headers.get("x-t3n-subject-token") || undefined;
 
-  if (apiKey.trim()) {
-    return { cred: { apiKey: apiKey.trim() }, piiDid, subjectToken };
+  const candidate = (
+    apiKey.trim() ||
+    (auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : "")
+  ).trim();
+
+  if (!candidate) {
+    return { cred: null, piiDid, subjectToken };
   }
-  if (auth.toLowerCase().startsWith("bearer ")) {
-    const token = auth.slice(7).trim();
-    if (token) return { cred: { bearer: token }, piiDid, subjectToken };
+
+  if (candidate.startsWith("0x")) {
+    return { cred: null, rawKey: candidate, piiDid, subjectToken };
   }
-  return { cred: null, piiDid, subjectToken };
+
+  if (candidate.startsWith("t3n_") || apiKey.trim()) {
+    return { cred: { apiKey: candidate }, piiDid, subjectToken };
+  }
+
+  return { cred: { bearer: candidate }, piiDid, subjectToken };
+}
+
+// In-memory cache for private key clients to avoid repeated handshakes
+const keyClients = new Map<string, { client: T3nClient; did: string; expiresAt: number }>();
+
+async function getClientForPrivateKey(key: string): Promise<{ client: T3nClient; did: string }> {
+  const cached = keyClients.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { client: cached.client, did: cached.did };
+  }
+
+  const [trustAnchor, wasmComponent] = await Promise.all([
+    getSharedTrustAnchor(),
+    getSharedWasm(),
+  ]);
+  const addr = eth_get_address(key);
+  const client = new T3nClient({
+    trustAnchor,
+    wasmComponent,
+    handlers: { EthSign: metamask_sign(addr, undefined, key) },
+  });
+  await client.handshake();
+  const did = await client.authenticate(createEthAuthInput(addr));
+
+  keyClients.set(key, { client, did: did.value, expiresAt: Date.now() + 15 * 60 * 1000 });
+  return { client, did: did.value };
 }
 
 const MCP_TOOLS = [
@@ -136,15 +185,15 @@ export async function POST(req: Request) {
   }
 
   if (method === "tools/call") {
-    const { cred, piiDid, subjectToken } = extractCredential(req);
-    if (!cred) {
+    const { cred, rawKey, piiDid, subjectToken } = extractCredential(req);
+    if (!cred && !rawKey) {
       return NextResponse.json(
         {
           jsonrpc: "2.0",
           id,
           error: {
             code: -32001,
-            message: "Missing Authorization: Bearer <t3n_oauth_token> or X-T3N-Api-Key header",
+            message: "Missing Authorization: Bearer *** or X-T3N-Api-Key header",
           },
         },
         { status: 401 }
@@ -159,7 +208,96 @@ export async function POST(req: Request) {
     const contract_version = await getActiveContractVersion();
 
     try {
-      const who = await discoverWhoami({ ...cred, baseUrl });
+      const fnMap: Record<string, { fn: string; input: unknown }> = {
+        vault_list_aliases: { fn: "list-credentials", input: {} },
+        vault_proxy_call: {
+          fn: "proxy-call",
+          input: {
+            credential_name: args.credential_name,
+            method: args.method || "POST",
+            path: args.path,
+            body: args.body ?? null,
+            use_placeholders: Boolean(args.use_placeholders),
+          },
+        },
+        vault_audit_recent: {
+          fn: "get-activity-log",
+          input: { limit: Number(args.limit) || 20 },
+        },
+      };
+
+      // Branch 1: Direct Private Key (0x...) authentication
+      if (rawKey) {
+        const { client, did } = await getClientForPrivateKey(rawKey);
+        recordDidActivity(did);
+
+        if (toolName === "vault_whoami") {
+          return NextResponse.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(
+                    {
+                      whoami: { did, owner: did, type: "direct_private_key" },
+                      contract_id,
+                      contract_version,
+                    },
+                    null,
+                    2
+                  ),
+                },
+              ],
+            },
+          });
+        }
+
+        const target = fnMap[toolName];
+        if (!target) {
+          return NextResponse.json({
+            jsonrpc: "2.0",
+            id,
+            error: { code: -32601, message: `Unknown tool: ${toolName}` },
+          });
+        }
+
+        const execRes = await client.execute({
+          contract_id,
+          contract_version,
+          function_name: target.fn,
+          input: target.input,
+        });
+
+        let data: unknown;
+        try {
+          data = typeof execRes === "string" ? JSON.parse(execRes) : execRes;
+        } catch {
+          data = execRes;
+        }
+
+        recordDidActivity(did, {
+          seq_no: Date.now(),
+          actor: did,
+          on_behalf_of: did,
+          contract: contract_id,
+          function: target.fn,
+          outcome: "success",
+          timestamp_ms: Date.now(),
+        });
+
+        return NextResponse.json({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
+          },
+        });
+      }
+
+      // Branch 2: Stateless Agent Credential (t3n_key_... or OAuth bearer)
+      const who = await discoverWhoami({ ...cred!, baseUrl });
       const resolvedOwner =
         (typeof args.owner_did === "string" && args.owner_did) ||
         piiDid ||
@@ -184,24 +322,6 @@ export async function POST(req: Request) {
         });
       }
 
-      const fnMap: Record<string, { fn: string; input: unknown }> = {
-        vault_list_aliases: { fn: "list-credentials", input: {} },
-        vault_proxy_call: {
-          fn: "proxy-call",
-          input: {
-            credential_name: args.credential_name,
-            method: args.method || "POST",
-            path: args.path,
-            body: args.body ?? null,
-            use_placeholders: Boolean(args.use_placeholders),
-          },
-        },
-        vault_audit_recent: {
-          fn: "get-activity-log",
-          input: { limit: Number(args.limit) || 20 },
-        },
-      };
-
       const target = fnMap[toolName];
       if (!target) {
         return NextResponse.json({
@@ -212,7 +332,7 @@ export async function POST(req: Request) {
       }
 
       const data = await invoke({
-        ...cred,
+        ...cred!,
         baseUrl,
         subjectToken,
         request: {
