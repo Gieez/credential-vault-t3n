@@ -32,5 +32,8 @@ task.txt
 # Debug logs
 *.log
 
-# Archives
-*.zip
+# Media & Video renders
+*.mp4
+*.wav
+*.png
+out/
