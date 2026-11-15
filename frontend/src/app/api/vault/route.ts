@@ -70,7 +70,13 @@ export async function POST(req: Request) {
     const contract_version = await getActiveContractVersion();
 
     if (parsed.data.host) {
-      await ensureSelfDelegation(session.client, session.did, [parsed.data.host]);
+      const delegation = await ensureSelfDelegation(session.client, session.did, [parsed.data.host]);
+      if (!delegation.ok) {
+        return NextResponse.json(
+          { error: delegation.warning || "Unable to authorize credential host" },
+          { status: 403 }
+        );
+      }
     }
 
     const result = await session.client.executeAndDecode({
