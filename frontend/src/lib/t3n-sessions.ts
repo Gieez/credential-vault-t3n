@@ -239,46 +239,44 @@ export async function verifyEmailOtpLogin(
   }
 }
 
+const SESSION_TTL_MS = 30 * 60 * 1000;
+const SESSION_SECRET_MIN_LENGTH = 32;
+
 function getSessionEncryptionKey(): Buffer {
-  const secret = process.env.T3N_API_KEY || "vaultgate-stateless-session-key-salt-2026";
-  return crypto.createHash("sha256").update(secret).digest();
+  ensureEnvLoaded();
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || secret.length < SESSION_SECRET_MIN_LENGTH) {
+    throw new Error("SESSION_SECRET must be configured with at least 32 characters");
+  }
+  return crypto.createHash("sha256").update(`vaultgate-session-v1:${secret}`).digest();
 }
 
-export function encodeSessionToken(payload: {
+interface SessionTokenPayload {
   did: string;
   privateKey?: string;
   email?: string;
   authMethod: "otp" | "key";
   createdAt: number;
-}): string {
+  expiresAt: number;
+}
+
+export function encodeSessionToken(payload: SessionTokenPayload): string {
   const iv = crypto.randomBytes(12);
-  const key = getSessionEncryptionKey();
-  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const cipher = crypto.createCipheriv("aes-256-gcm", getSessionEncryptionKey(), iv);
   const json = JSON.stringify(payload);
   const enc = Buffer.concat([cipher.update(json, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
-  return [
-    iv.toString("base64url"),
-    tag.toString("base64url"),
-    enc.toString("base64url"),
-  ].join(".");
+  return [iv.toString("base64url"), tag.toString("base64url"), enc.toString("base64url")].join(".");
 }
 
-export function decodeSessionToken(token: string): {
-  did: string;
-  privateKey?: string;
-  email?: string;
-  authMethod: "otp" | "key";
-  createdAt: number;
-} | null {
+export function decodeSessionToken(token: string): SessionTokenPayload | null {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
     const [ivB, tagB, encB] = parts;
-    const key = getSessionEncryptionKey();
     const decipher = crypto.createDecipheriv(
       "aes-256-gcm",
-      key,
+      getSessionEncryptionKey(),
       Buffer.from(ivB, "base64url")
     );
     decipher.setAuthTag(Buffer.from(tagB, "base64url"));
@@ -286,7 +284,21 @@ export function decodeSessionToken(token: string): {
       decipher.update(Buffer.from(encB, "base64url")),
       decipher.final(),
     ]);
-    return JSON.parse(dec.toString("utf8"));
+    const value = JSON.parse(dec.toString("utf8")) as Partial<SessionTokenPayload>;
+    if (
+      typeof value.did !== "string" ||
+      !/^did:t3n:[0-9a-f]{40}$/i.test(value.did) ||
+      (value.authMethod !== "key" && value.authMethod !== "otp") ||
+      !Number.isSafeInteger(value.createdAt) ||
+      !Number.isSafeInteger(value.expiresAt) ||
+      value.expiresAt! <= Date.now() ||
+      value.createdAt! > Date.now() + 60_000 ||
+      value.expiresAt! - value.createdAt! > SESSION_TTL_MS ||
+      (value.authMethod === "key" && typeof value.privateKey !== "string")
+    ) {
+      return null;
+    }
+    return value as SessionTokenPayload;
   } catch {
     return null;
   }
@@ -333,11 +345,14 @@ export async function signInWithPrivateKey(privateKey: string): Promise<UserSess
 
   const { client, did } = await getOrCreateClient(cleanKey);
 
+  const now = Date.now();
+  const expiresAt = now + SESSION_TTL_MS;
   const token = encodeSessionToken({
     did,
     privateKey: cleanKey,
     authMethod: "key",
-    createdAt: Date.now(),
+    createdAt: now,
+    expiresAt,
   });
 
   const session: UserSession = {
@@ -345,8 +360,8 @@ export async function signInWithPrivateKey(privateKey: string): Promise<UserSess
     did,
     authMethod: "key",
     client,
-    createdAt: Date.now(),
-    lastActiveAt: Date.now(),
+    createdAt: now,
+    lastActiveAt: now,
   };
 
   sessionsMap().set(token, session);
@@ -363,12 +378,16 @@ export async function getSessionFromCookies(): Promise<UserSession | null> {
 
   const inMemory = sessionsMap().get(raw);
   if (inMemory) {
+    if (Date.now() - inMemory.createdAt > SESSION_TTL_MS) {
+      sessionsMap().delete(raw);
+      return null;
+    }
     inMemory.lastActiveAt = Date.now();
     return inMemory;
   }
 
   const payload = decodeSessionToken(raw);
-  if (!payload || !payload.privateKey) return null;
+  if (!payload || payload.authMethod !== "key" || !payload.privateKey) return null;
 
   try {
     const { client, did } = await getOrCreateClient(payload.privateKey);
@@ -393,9 +412,13 @@ export async function getSessionFromCookies(): Promise<UserSession | null> {
 
 export async function destroySessionFromCookies(): Promise<void> {
   const cookieStore = await cookies();
-  const sid = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-  if (sid) {
-    sessionsMap().delete(sid);
+  const raw = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  if (!raw) return;
+
+  sessionsMap().delete(raw);
+  const payload = decodeSessionToken(raw);
+  if (payload?.privateKey) {
+    clientPool.delete(payload.privateKey);
   }
 }
 

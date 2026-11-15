@@ -99,36 +99,17 @@ export default function LoginPage() {
         </div>
 
         <div className="lg:col-span-6 bg-panel border hairline-strong p-6 lg:p-8 max-w-lg w-full">
-          <div className="flex border-b hairline mb-6">
+            <div className="pb-3 px-3 font-mono text-xs uppercase border-b-2 border-seal text-ink font-semibold">
+              T3N Developer Key
+            </div>
             <button
               type="button"
-              onClick={() => {
-                setMode("key");
-                setError("");
-              }}
-              className={`pb-3 px-3 font-mono text-xs uppercase border-b-2 cursor-pointer ${
-                mode === "key"
-                  ? "border-seal text-ink font-semibold"
-                  : "border-transparent text-muted"
-              }`}
+              disabled
+              title="Email OTP is unavailable on the current serverless deployment because pending authentication state is not shared between function instances."
+              className="pb-3 px-3 font-mono text-xs uppercase border-b-2 border-transparent text-muted/60 cursor-not-allowed"
             >
-              T3N Developer Key (Instant)
+              Email OTP (unavailable)
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode("otp");
-                setError("");
-              }}
-              className={`pb-3 px-3 font-mono text-xs uppercase border-b-2 cursor-pointer ${
-                mode === "otp"
-                  ? "border-seal text-ink font-semibold"
-                  : "border-transparent text-muted"
-              }`}
-            >
-              Email OTP
-            </button>
-          </div>
 
           {mode === "otp" ? (
             pendingId ? (
@@ -219,7 +200,7 @@ export default function LoginPage() {
                 />
               </div>
               <div className="flex items-center justify-between text-xs text-muted">
-                <span>Used locally to authenticate your session via SIWE. Never exposed to third parties.</span>
+                <span>Private key is sent to VaultGate over HTTPS and used server-side for T3N authentication. It is encrypted in a short-lived, HttpOnly session cookie. Do not use a key holding valuable funds.</span>
                 <a
                   href="https://www.terminal3.io/claim-page"
                   target="_blank"
