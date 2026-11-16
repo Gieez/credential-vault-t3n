@@ -65,7 +65,7 @@ function sessionsMap() {
 function tractionStore(): LocalTractionRecord {
   if (!g.__vgTraction) {
     g.__vgTraction = {
-      knownDids: new Set(["did:t3n:4501765f00802de416a08a09180a96e7d346da75"]),
+      knownDids: new Set<string>(),
       recentCalls: [],
     };
   }
@@ -304,29 +304,24 @@ export async function fetchPublicTraction(limit = 30): Promise<{
   source: "cluster_ledger" | "session_buffer";
 }> {
   const contractId = getContractId();
-  const store = tractionStore();
 
-  // Prefer any active session client, else admin telemetry client
-  const firstActive = sessionsMap().values().next().value as UserSession | undefined;
-  const reader = firstActive?.client ?? (await getAdminTelemetryClient());
+  // Public metrics use the deployer's ledger scope, never an arbitrary user session.
+  const reader = await getAdminTelemetryClient();
 
   if (reader) {
     try {
       const report = await reader.getActivityLog({ limit: 200 });
-      const allEntries = report.entries || [];
-      const didSet = new Set<string>(store.knownDids);
-      for (const e of allEntries) {
+      const vaultEntries = (report.entries || []).filter((e) => e.contract === contractId);
+      const didSet = new Set<string>();
+      for (const e of vaultEntries) {
         if (e.actor) didSet.add(e.actor);
         if (e.on_behalf_of) didSet.add(e.on_behalf_of);
       }
-      const vaultEntries = allEntries.filter(
-        (e) => e.contract === contractId || e.contract.includes("credential-vault")
-      );
       return {
         uniqueDidsCount: didSet.size,
-        totalCallsScanned: vaultEntries.length || allEntries.length,
+        totalCallsScanned: vaultEntries.length,
         contractId,
-        entries: (vaultEntries.length > 0 ? vaultEntries : allEntries).slice(0, limit),
+        entries: vaultEntries.slice(0, limit),
         source: "cluster_ledger",
       };
     } catch {
@@ -335,8 +330,8 @@ export async function fetchPublicTraction(limit = 30): Promise<{
   }
 
   return {
-    uniqueDidsCount: store.knownDids.size,
-    totalCallsScanned: store.recentCalls.length,
+    uniqueDidsCount: 0,
+    totalCallsScanned: 0,
     contractId,
     entries: [],
     source: "session_buffer",

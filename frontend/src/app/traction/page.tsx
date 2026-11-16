@@ -60,7 +60,7 @@ export default function TractionPage() {
   const entries = data?.entries ?? [];
   const successCount = entries.filter((e) => e.outcome === "success").length;
   const successRate =
-    entries.length > 0 ? `${((successCount / entries.length) * 100).toFixed(1)}%` : "100%";
+    entries.length > 0 ? `${((successCount / entries.length) * 100).toFixed(1)}%` : "N/A";
 
   return (
     <div className="min-h-screen flex flex-col bg-paper text-ink">
@@ -74,7 +74,7 @@ export default function TractionPage() {
               T3N Traction &amp; Cluster Ledger
             </h1>
             <p className="text-sm text-muted mt-1">
-              Live unique DID count and enclave invocations retrieved from T3N cluster activity logs.
+              DIDs and calls in a bounded sample of the deployer-visible ledger for this contract. These are not lifetime totals or independently verified user counts.
             </p>
           </div>
           <div className="flex gap-2">
@@ -97,7 +97,7 @@ export default function TractionPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-5 bg-elevated p-6 border hairline-strong">
-            <p className="font-mono text-[11px] uppercase text-muted">Active Unique DIDs</p>
+            <p className="font-mono text-[11px] uppercase text-muted">DIDs in Ledger Sample</p>
             <p className="font-display text-5xl font-bold mt-2 tabular">
               {loading ? "-" : (data?.uniqueDidsCount ?? 0)}
             </p>
@@ -108,7 +108,7 @@ export default function TractionPage() {
 
           <div className="lg:col-span-7 bg-panel p-6 border hairline grid grid-cols-2 sm:grid-cols-3 gap-4">
             <div>
-              <p className="font-mono text-[11px] uppercase text-muted">Enclave Events</p>
+              <p className="font-mono text-[11px] uppercase text-muted">Calls in Ledger Sample</p>
               <p className="font-display text-3xl font-bold mt-2 tabular">
                 {loading ? "-" : (data?.totalCallsScanned ?? 0)}
               </p>
