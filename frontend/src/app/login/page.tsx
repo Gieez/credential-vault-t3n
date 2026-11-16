@@ -93,7 +93,7 @@ export default function LoginPage() {
           <div className="bg-panel border hairline p-5 max-w-md space-y-2 font-mono text-xs">
             <p className="font-semibold text-ink">Session Sequence</p>
             <p className="text-muted">1. Attested ML-KEM handshake with T3N testnet node</p>
-            <p className="text-muted">2. Authenticate via Email OTP or local secp256k1 challenge</p>
+            <p className="text-muted">2. Authenticate using your dedicated T3N developer key</p>
             <p className="text-muted">3. Auto-configure self-delegation for contract v0.4.2</p>
           </div>
         </div>
@@ -200,7 +200,7 @@ export default function LoginPage() {
                 />
               </div>
               <div className="flex items-center justify-between text-xs text-muted">
-                <span>Private key is sent to VaultGate over HTTPS and used server-side for T3N authentication. It is encrypted in a short-lived, HttpOnly session cookie. Do not use a key holding valuable funds.</span>
+                <span>Private key is sent to VaultGate over HTTPS for T3N authentication and stored encrypted in its private session registry. Sessions expire after 30 minutes. Your HttpOnly cookie contains only a random session ID. Use a dedicated testnet developer key.</span>
                 <a
                   href="https://www.terminal3.io/claim-page"
                   target="_blank"

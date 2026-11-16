@@ -132,7 +132,7 @@ export default function DocsPage() {
           <section id="delegation" className="bg-panel border hairline p-6 space-y-3 scroll-mt-24">
             <h2 className="font-display text-xl font-bold">02. Multi-DID &amp; Delegation</h2>
             <p className="text-sm text-muted leading-relaxed">
-              Every user signs in with Terminal 3 Email OTP or their own secp256k1 key to authenticate as a unique did:t3n principal. From /app/agents, users mint dedicated Agent DIDs via createDelegatedAgent and grant one BoundGrant row per contract function with explicit allowed_hosts via updateMemberDelegation.
+              Every user signs in with their own T3N developer key to authenticate as a did:t3n principal. Email OTP is disabled on the current serverless deployment. From /app/agents, users mint dedicated Agent DIDs via createDelegatedAgent and grant one BoundGrant row per contract function with explicit allowed_hosts via updateMemberDelegation.
             </p>
           </section>
 

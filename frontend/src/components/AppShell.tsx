@@ -40,6 +40,8 @@ export function AppShell({ children }: AppShellProps) {
   const [checking, setChecking] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [logoutError, setLogoutError] = useState("");
+  const [loggingOut, setLoggingOut] = useState(false);
 
   async function loadMe() {
     try {
@@ -63,8 +65,16 @@ export function AppShell({ children }: AppShellProps) {
   }, [refreshTick]);
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/login");
+    setLoggingOut(true);
+    setLogoutError("");
+    try {
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      if (!res.ok) throw new Error("Logout could not be confirmed. Retry to revoke your session.");
+      window.location.replace("/login");
+    } catch {
+      setLogoutError("Logout could not be confirmed. Retry to revoke your session.");
+      setLoggingOut(false);
+    }
   }
 
   if (checking || !user) {
@@ -123,14 +133,16 @@ export function AppShell({ children }: AppShellProps) {
             <button
               type="button"
               onClick={logout}
-              className="px-2.5 py-1.5 border hairline font-mono text-[11px] text-muted hover:text-seal cursor-pointer"
+              disabled={loggingOut}
+              className="px-2.5 py-1.5 border hairline font-mono text-[11px] text-muted hover:text-seal cursor-pointer disabled:opacity-50"
             >
-              Exit
+              {loggingOut ? "Revoking..." : "Exit"}
             </button>
           </div>
         </div>
       </header>
 
+      {logoutError && <p role="alert" className="border-b hairline p-3 text-seal font-mono text-xs">{logoutError}</p>}
       {/* Main Split Workspace */}
       <div className="flex-1 w-full max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 border-x hairline">
         <aside className="lg:col-span-2 border-b lg:border-b-0 lg:border-r hairline bg-panel p-4 flex lg:flex-col justify-between gap-4 overflow-x-auto">

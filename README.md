@@ -24,7 +24,7 @@ AI coding agents (Claude Code, Cursor, OpenClaw, Hermes) and autonomous backgrou
 2. Secrets are scoped strictly to the caller's unique `did:t3n:...` identity via `host:tenant/tenant-context@2.0.0`.
 3. AI agents never receive raw keys. They reference a credential alias (such as `openai-prod` or `gemini-flash`).
 4. Outbound HTTPS requests are constructed inside enclave RAM. The enclave injects the required authorization header, validates the destination host against member delegation allowlists, dispatches the request, and redacts sensitive tokens from response logs.
-5. All operations are accessible through a Streamable-HTTP Remote MCP Server (`/api/mcp`), enabling standard AI assistants to execute authenticated tools without holding local secrets.
+5. The Remote MCP endpoint (`/api/mcp`) exposes identity, alias listing, proxy execution and audit reads over HTTP JSON-RPC. MCP callers still need a T3N authentication credential; they need not hold the upstream provider key.
 
 ---
 
@@ -81,13 +81,24 @@ AI coding agents (Claude Code, Cursor, OpenClaw, Hermes) and autonomous backgrou
 
 | Component | Execution Context | Trust Level & Data Isolation |
 | :--- | :--- | :--- |
-| **Next.js Frontend & MCP Route** | Public Cloud (Vercel) | Stateless proxy. Handles session tokens and JSON-RPC dispatch. Never inspects or stores plaintext API keys. |
-| **Client Secrets (OpenAI, Gemini, etc.)** | T3N Intel TDX Enclave | Stored in hardware-encrypted KV storage with contract-exclusive ACL. Plaintext exists only in enclave RAM during outbound call execution. |
+| **Next.js Frontend & MCP Route** | Public Cloud (Vercel) | Trusted backend. Receives developer private keys at login and provider keys during storage over HTTPS. Uses them server-side to authenticate or forward requests to T3N. |
+| **Client Secrets (OpenAI, Gemini, etc.)** | T3N Intel TDX Enclave | Persisted in private KV with contract ACLs; proxy execution injects credentials inside the enclave and redacts exact key matches in returned payloads. Initial credential entry passes through the browser and trusted backend. |
 | **Identity & Access Control** | T3N Testnet Node | Managed via cryptographic DIDs (`did:t3n:...`). Keys are namespaced by owner hex (`u:<owner_hex>:<name>`). |
 | **Agent Delegation** | T3N Chain ACL | Scoped with `updateMemberDelegation` and `BoundGrant`. Restricts agent DIDs to explicit contract functions and allowed outbound hostnames. |
 | **Egress Filter** | Rust WASM Enclave | Enforces strict host validation. Rejects loopback, private RFC-1918, link-local, and cloud metadata IP ranges (`169.254.169.254`). |
 
 ---
+
+### Web sessions and logout
+
+- Browser cookies contain only a random 256-bit session ID. Session credentials are encrypted with AES-256-GCM using the independent `SESSION_SECRET` and stored in the deployer's private T3N KV map `web-sessions` (no contract readers/writers).
+- Every authenticated web request reads the authoritative registry before using any warm client cache. Sessions expire after 30 minutes. Missing, tampered, revoked or expired sessions fail closed.
+- Logout overwrites the registry row with a revocation tombstone, removes its encrypted credentials, and reads it back before reporting success. Other instances then reject a copied cookie. Requests already authorized before logout may finish.
+- This is custodial developer-key login: VaultGate's backend receives and can use the key. Use a dedicated testnet key. The service operator and session encryption configuration remain trusted components.
+- Expired sessions are denied, but KV rows are not automatically garbage-collected. Old encrypted rows and ledger history may remain; expiry is not a claim of physical deletion.
+- Registry verification adds a T3N read per authenticated request and depends on available deployer credits. A registry outage denies access rather than restoring the previous cookie-only behavior.
+
+Run `npx tsx --test tests/session-registry.test.ts` for registry regression tests. `npx tsx tests/session-http.ts <server-A> <server-B>` checks login, cross-process restoration, logout and replay denial using your locally configured testnet key without printing it.
 
 ## Remote MCP Server Guide (`/api/mcp`)
 
@@ -191,7 +202,7 @@ Built with Next.js 16 (Turbopack) using the Swiss Hardware Manual and Carbon Enc
 - **`/` (Public Overview):** Protocol introduction, live hardware boundary architecture diagram, live unique DID counter, and feature highlights.
 - **`/docs` (Technical Reference):** Interactive documentation with real-time scroll-spy sidebar tracking enclave architecture, delegation model, Remote MCP integration, and Rust WASM ABI.
 - **`/traction` (Public Telemetry):** Live leaderboard showing total unique DIDs, cluster transactions, recent execution ledger, and raw CSV export.
-- **`/login` (Authentication):** Dual authentication supporting Terminal 3 Email OTP (via `createEmailOtpAuthInput`) and local T3N Private Key auth (via `createEthAuthInput`).
+- **`/login` (Authentication):** T3N Developer Key authentication. Email OTP is disabled on the serverless deployment. The backend receives the key over HTTPS; this is not browser-only signing.
 - **`/app` (Workspace Hub):** Enclave status indicators, quick stats, and deployment checklist.
 - **`/app/vault` (Credential Manager):** Modal to store and revoke secrets with preset configurations for OpenAI, Gemini, Anthropic, Resend, Telegram, GitHub, and Webhooks.
 - **`/app/agents` (Agent Delegation):** Interface to mint delegated Agent DIDs and configure granular function-level access with hostname allowlists.
@@ -352,6 +363,9 @@ T3N_CONTRACT_VERSION=0.4.2
 
 # Terminal 3 API Key (0x... secp256k1 key from claim-page)
 T3N_API_KEY=0x...
+
+# Independent random secret, at least 32 characters; no fallback
+SESSION_SECRET=<random-secret>
 ```
 
 ---

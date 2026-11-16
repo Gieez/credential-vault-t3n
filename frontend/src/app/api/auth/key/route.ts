@@ -3,7 +3,7 @@ import { z } from "zod";
 import { SESSION_COOKIE_NAME, signInWithPrivateKey } from "@/lib/t3n-sessions";
 
 const schema = z.object({
-  privateKey: z.string().min(16, "Enter a valid secp256k1 private key"),
+  privateKey: z.string().regex(/^0x[0-9a-fA-F]{64}$/, "Enter a 0x-prefixed 32-byte developer key"),
 });
 
 export async function POST(req: Request) {
@@ -18,6 +18,7 @@ export async function POST(req: Request) {
     }
     const session = await signInWithPrivateKey(parsed.data.privateKey);
     const res = NextResponse.json({ ok: true, did: session.did });
+    res.headers.set("Cache-Control", "no-store");
     res.cookies.set(SESSION_COOKIE_NAME, session.id, {
       secure: process.env.NODE_ENV === "production",
       path: "/",

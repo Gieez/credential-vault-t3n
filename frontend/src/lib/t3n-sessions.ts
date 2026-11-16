@@ -1,11 +1,11 @@
-import crypto from "crypto";
 import { cookies } from "next/headers";
 import {
   T3nClient,
   eth_get_address,
   metamask_sign,
   createEthAuthInput,
-  createEmailOtpAuthInput,
+  TenantClient,
+  getNodeUrl,
   fanOutGrant,
   readOnlyScopes,
   formatTokens,
@@ -26,6 +26,7 @@ import {
 } from "./t3n-config";
 
 export const SESSION_COOKIE_NAME = "vg_session";
+import { createSessionRegistry } from "./session-registry";
 
 export interface UserSession {
   id: string;
@@ -35,14 +36,6 @@ export interface UserSession {
   client: T3nClient;
   createdAt: number;
   lastActiveAt: number;
-}
-
-interface PendingOtp {
-  email: string;
-  submitCode: (code: string) => void;
-  rejectCode: (err: Error) => void;
-  authPromise: Promise<UserSession>;
-  createdAt: number;
 }
 
 export interface LocalTractionRecord {
@@ -60,7 +53,6 @@ export interface LocalTractionRecord {
 
 const g = globalThis as unknown as {
   __vgSessions?: Map<string, UserSession>;
-  __vgPendingOtp?: Map<string, PendingOtp>;
   __vgAdminClient?: T3nClient | null;
   __vgTraction?: LocalTractionRecord;
 };
@@ -68,11 +60,6 @@ const g = globalThis as unknown as {
 function sessionsMap() {
   if (!g.__vgSessions) g.__vgSessions = new Map();
   return g.__vgSessions;
-}
-
-function pendingOtpMap() {
-  if (!g.__vgPendingOtp) g.__vgPendingOtp = new Map();
-  return g.__vgPendingOtp;
 }
 
 function tractionStore(): LocalTractionRecord {
@@ -141,167 +128,19 @@ export async function ensureSelfDelegation(
   }
 }
 
-export async function startEmailOtpLogin(email: string): Promise<{ pendingId: string }> {
-  initT3nEnv();
-  const trimmed = email.trim().toLowerCase();
-  if (!trimmed.includes("@") || !trimmed.includes(".")) {
-    throw new Error("Invalid email address");
-  }
-
-  const [trustAnchor, wasmComponent] = await Promise.all([
-    getSharedTrustAnchor(),
-    getSharedWasm(),
-  ]);
-
-  const client = new T3nClient({ trustAnchor, wasmComponent });
-  await client.handshake();
-
-  let submitCode!: (code: string) => void;
-  let rejectCode!: (err: Error) => void;
-  const codePromise = new Promise<string>((res, rej) => {
-    submitCode = res;
-    rejectCode = rej;
-  });
-
-  const pendingId = crypto.randomBytes(16).toString("hex");
-
-  const authPromise = (async (): Promise<UserSession> => {
-    const did = await client.authenticate(
-      createEmailOtpAuthInput({
-        email: trimmed,
-        getOtpCode: () => codePromise,
-      })
-    );
-    const session: UserSession = {
-      id: crypto.randomBytes(24).toString("hex"),
-      did: did.value,
-      email: trimmed,
-      authMethod: "otp",
-      client,
-      createdAt: Date.now(),
-      lastActiveAt: Date.now(),
-    };
-    sessionsMap().set(session.id, session);
-    recordDidActivity(session.did);
-    await ensureSelfDelegation(client, session.did);
-    return session;
-  })();
-
-  // Prevent unhandled rejection if caller abandons OTP
-  authPromise.catch(() => {});
-
-  // Give the SDK a brief moment to send InitEmailOtp and catch immediate rate-limit errors
-  await Promise.race([
-    authPromise.then(() => null),
-    new Promise((r) => setTimeout(r, 900)),
-  ]);
-
-  pendingOtpMap().set(pendingId, {
-    email: trimmed,
-    submitCode,
-    rejectCode,
-    authPromise,
-    createdAt: Date.now(),
-  });
-
-  // Cleanup expired pending flows (> 10 minutes)
-  const cutoff = Date.now() - 10 * 60_000;
-  for (const [k, v] of pendingOtpMap().entries()) {
-    if (v.createdAt < cutoff) {
-      v.rejectCode(new Error("OTP session expired"));
-      pendingOtpMap().delete(k);
-    }
-  }
-
-  return { pendingId };
-}
-
-export async function verifyEmailOtpLogin(
-  pendingId: string,
-  code: string
-): Promise<UserSession> {
-  const pending = pendingOtpMap().get(pendingId);
-  if (!pending) {
-    throw new Error("OTP session not found or expired. Request a new code.");
-  }
-  const cleanCode = code.trim();
-  if (!cleanCode) {
-    throw new Error("OTP code is required");
-  }
-  pending.submitCode(cleanCode);
-  try {
-    const session = await pending.authPromise;
-    pendingOtpMap().delete(pendingId);
-    return session;
-  } catch (err) {
-    pendingOtpMap().delete(pendingId);
-    throw err;
-  }
-}
-
-const SESSION_TTL_MS = 30 * 60 * 1000;
-const SESSION_SECRET_MIN_LENGTH = 32;
-
-function getSessionEncryptionKey(): Buffer {
+async function sessionRegistry() {
   ensureEnvLoaded();
-  const secret = process.env.SESSION_SECRET;
-  if (!secret || secret.length < SESSION_SECRET_MIN_LENGTH) {
-    throw new Error("SESSION_SECRET must be configured with at least 32 characters");
-  }
-  return crypto.createHash("sha256").update(`vaultgate-session-v1:${secret}`).digest();
-}
-
-interface SessionTokenPayload {
-  did: string;
-  privateKey?: string;
-  email?: string;
-  authMethod: "otp" | "key";
-  createdAt: number;
-  expiresAt: number;
-}
-
-export function encodeSessionToken(payload: SessionTokenPayload): string {
-  const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv("aes-256-gcm", getSessionEncryptionKey(), iv);
-  const json = JSON.stringify(payload);
-  const enc = Buffer.concat([cipher.update(json, "utf8"), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return [iv.toString("base64url"), tag.toString("base64url"), enc.toString("base64url")].join(".");
-}
-
-export function decodeSessionToken(token: string): SessionTokenPayload | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    const [ivB, tagB, encB] = parts;
-    const decipher = crypto.createDecipheriv(
-      "aes-256-gcm",
-      getSessionEncryptionKey(),
-      Buffer.from(ivB, "base64url")
-    );
-    decipher.setAuthTag(Buffer.from(tagB, "base64url"));
-    const dec = Buffer.concat([
-      decipher.update(Buffer.from(encB, "base64url")),
-      decipher.final(),
-    ]);
-    const value = JSON.parse(dec.toString("utf8")) as Partial<SessionTokenPayload>;
-    if (
-      typeof value.did !== "string" ||
-      !/^did:t3n:[0-9a-f]{40}$/i.test(value.did) ||
-      (value.authMethod !== "key" && value.authMethod !== "otp") ||
-      !Number.isSafeInteger(value.createdAt) ||
-      !Number.isSafeInteger(value.expiresAt) ||
-      value.expiresAt! <= Date.now() ||
-      value.createdAt! > Date.now() + 60_000 ||
-      value.expiresAt! - value.createdAt! > SESSION_TTL_MS ||
-      (value.authMethod === "key" && typeof value.privateKey !== "string")
-    ) {
-      return null;
-    }
-    return value as SessionTokenPayload;
-  } catch {
-    return null;
-  }
+  const secret = process.env.SESSION_SECRET || "";
+  // Validate configuration before making authenticated network calls.
+  if (secret.length < 32) throw new Error("SESSION_SECRET must contain at least 32 characters");
+  const admin = await getAdminTelemetryClient();
+  const did = admin?.getDid()?.value;
+  if (!admin || !did) throw new Error("Session registry is unavailable");
+  const tenant = new TenantClient({ t3n: admin, baseUrl: getNodeUrl(), tenantDid: did });
+  return createSessionRegistry({
+    get: (key) => tenant.maps.entryGet("web-sessions", key),
+    set: (key, value) => tenant.maps.entrySet("web-sessions", key, value),
+  }, secret);
 }
 
 const clientPool = new Map<string, { client: T3nClient; did: string; expiresAt: number }>();
@@ -345,15 +184,9 @@ export async function signInWithPrivateKey(privateKey: string): Promise<UserSess
 
   const { client, did } = await getOrCreateClient(cleanKey);
 
-  const now = Date.now();
-  const expiresAt = now + SESSION_TTL_MS;
-  const token = encodeSessionToken({
-    did,
-    privateKey: cleanKey,
-    authMethod: "key",
-    createdAt: now,
-    expiresAt,
-  });
+  const registry = await sessionRegistry();
+  const { id: token, payload } = await registry.issue(did, cleanKey);
+  const now = payload.createdAt;
 
   const session: UserSession = {
     id: token,
@@ -376,50 +209,38 @@ export async function getSessionFromCookies(): Promise<UserSession | null> {
   const raw = cookieStore.get(SESSION_COOKIE_NAME)?.value;
   if (!raw) return null;
 
-  const inMemory = sessionsMap().get(raw);
-  if (inMemory) {
-    if (Date.now() - inMemory.createdAt > SESSION_TTL_MS) {
+  try {
+    const registry = await sessionRegistry();
+    const payload = await registry.read(raw);
+    if (!payload) {
       sessionsMap().delete(raw);
       return null;
     }
-    inMemory.lastActiveAt = Date.now();
-    return inMemory;
-  }
-
-  const payload = decodeSessionToken(raw);
-  if (!payload || payload.authMethod !== "key" || !payload.privateKey) return null;
-
-  try {
+    const inMemory = sessionsMap().get(raw);
+    if (inMemory && inMemory.did === payload.did) {
+      inMemory.lastActiveAt = Date.now();
+      return inMemory;
+    }
     const { client, did } = await getOrCreateClient(payload.privateKey);
-
+    if (did !== payload.did) return null;
     const session: UserSession = {
-      id: raw,
-      did: payload.did || did,
-      email: payload.email,
-      authMethod: payload.authMethod,
-      client,
-      createdAt: payload.createdAt,
-      lastActiveAt: Date.now(),
+      id: raw, did, authMethod: "key", client,
+      createdAt: payload.createdAt, lastActiveAt: Date.now(),
     };
-
     sessionsMap().set(raw, session);
     return session;
-  } catch (err) {
-    console.error("Failed to restore session from cookie:", err);
+  } catch {
+    // Do not log credentials, encrypted session contents or SDK error payloads.
     return null;
   }
 }
 
 export async function destroySessionFromCookies(): Promise<void> {
-  const cookieStore = await cookies();
-  const raw = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  const raw = (await cookies()).get(SESSION_COOKIE_NAME)?.value;
   if (!raw) return;
-
+  const registry = await sessionRegistry();
+  await registry.revoke(raw); // Must succeed before reporting logout success.
   sessionsMap().delete(raw);
-  const payload = decodeSessionToken(raw);
-  if (payload?.privateKey) {
-    clientPool.delete(payload.privateKey);
-  }
 }
 
 export async function getBalanceSummary(client: T3nClient): Promise<{
